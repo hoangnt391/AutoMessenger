@@ -1,0 +1,1 @@
+package com.hoangnt391.automessenger; import org.junit.Test; import static org.junit.Assert.*; public class BasicTest { @Test public void appName(){assertEquals("AutoMessenger","AutoMessenger");} }
