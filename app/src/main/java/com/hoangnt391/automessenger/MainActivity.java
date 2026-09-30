@@ -117,7 +117,7 @@ public class MainActivity extends Activity {
         Intent s = new Intent(this, AutoMessengerService.class);
         s.putExtra(AutoMessengerService.EXTRA_RESULT_CODE, resultCode);
         s.putExtra(AutoMessengerService.EXTRA_DATA, data);
-        androidx.core.content.ContextCompat.startForegroundService(this, s);
+        startForegroundService(s);
 
         Toast.makeText(this, "AutoMessenger đã chạy nền", Toast.LENGTH_SHORT).show();
     }
