@@ -15,68 +15,115 @@ public final class AiClient {
     private AiClient() {}
 
     public static String reply(String apiKey, String model, String instructions, String incoming) throws Exception {
-        if (apiKey == null || apiKey.trim().isEmpty()) throw new IllegalArgumentException("Chưa nhập OpenAI API key");
-        String body = new JSONObject()
-                .put("model", model == null || model.trim().isEmpty() ? "gpt-5.6-luna" : model.trim())
-                .put("instructions", instructions)
-                .put("input", incoming)
-                .put("max_output_tokens", 300)
-                .toString();
+        if (apiKey == null || apiKey.trim().isEmpty()) {
+            throw new IllegalArgumentException("Chưa nhập Gemini API key");
+        }
 
-        HttpURLConnection c = (HttpURLConnection) new URL("https://api.openai.com/v1/responses").openConnection();
+        String modelName = model == null || model.trim().isEmpty()
+                ? "gemini-flash-latest"
+                : model.trim();
+
+        JSONObject body = new JSONObject();
+
+        if (instructions != null && !instructions.trim().isEmpty()) {
+            JSONObject systemInstruction = new JSONObject()
+                    .put("parts", new JSONArray()
+                            .put(new JSONObject().put("text", instructions.trim())));
+            body.put("system_instruction", systemInstruction);
+        }
+
+        body.put("contents", new JSONArray().put(
+                new JSONObject()
+                        .put("role", "user")
+                        .put("parts", new JSONArray()
+                                .put(new JSONObject().put("text", incoming == null ? "" : incoming)))
+        ));
+
+        body.put("generationConfig", new JSONObject()
+                .put("temperature", 0.7)
+                .put("maxOutputTokens", 300));
+
+        URL url = new URL(
+                "https://generativelanguage.googleapis.com/v1beta/models/"
+                        + modelName + ":generateContent");
+
+        HttpURLConnection c = (HttpURLConnection) url.openConnection();
         c.setRequestMethod("POST");
         c.setConnectTimeout(15000);
         c.setReadTimeout(30000);
         c.setDoOutput(true);
-        c.setRequestProperty("Authorization", "Bearer " + apiKey.trim());
+        c.setRequestProperty("x-goog-api-key", apiKey.trim());
         c.setRequestProperty("Content-Type", "application/json");
         c.setRequestProperty("Accept", "application/json");
 
         try (OutputStream os = c.getOutputStream()) {
-            os.write(body.getBytes(StandardCharsets.UTF_8));
+            os.write(body.toString().getBytes(StandardCharsets.UTF_8));
         }
 
         int code = c.getResponseCode();
-        InputStream stream = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream();
+        InputStream stream = code >= 200 && code < 300
+                ? c.getInputStream()
+                : c.getErrorStream();
+
         String response = readAll(stream);
+
         if (code < 200 || code >= 300) {
-            throw new Exception("OpenAI HTTP " + code + ": " + response);
+            throw new Exception("Gemini HTTP " + code + ": " + response);
         }
 
-        String text = extractOutputText(new JSONObject(response));
-        if (text == null || text.trim().isEmpty()) throw new Exception("OpenAI không trả về nội dung");
+        String text = extractText(new JSONObject(response));
+        if (text == null || text.trim().isEmpty()) {
+            throw new Exception("Gemini không trả về nội dung");
+        }
+
         return text.trim();
     }
 
     private static String readAll(InputStream in) throws Exception {
         if (in == null) return "";
         StringBuilder out = new StringBuilder();
-        try (BufferedReader br = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+
+        try (BufferedReader br = new BufferedReader(
+                new InputStreamReader(in, StandardCharsets.UTF_8))) {
             String line;
-            while ((line = br.readLine()) != null) out.append(line);
+            while ((line = br.readLine()) != null) {
+                out.append(line);
+            }
         }
+
         return out.toString();
     }
 
-    private static String extractOutputText(JSONObject root) throws Exception {
-        JSONArray output = root.optJSONArray("output");
-        if (output != null) {
-            for (int i = 0; i < output.length(); i++) {
-                JSONObject item = output.optJSONObject(i);
-                if (item == null) continue;
-                JSONArray content = item.optJSONArray("content");
-                if (content == null) continue;
-                for (int j = 0; j < content.length(); j++) {
-                    JSONObject part = content.optJSONObject(j);
-                    if (part == null) continue;
-                    String type = part.optString("type", "");
-                    if ("output_text".equals(type) || part.has("text")) {
-                        String t = part.optString("text", "");
-                        if (!t.isEmpty()) return t;
-                    }
+    private static String extractText(JSONObject root) {
+        JSONArray candidates = root.optJSONArray("candidates");
+        if (candidates == null) return "";
+
+        for (int i = 0; i < candidates.length(); i++) {
+            JSONObject candidate = candidates.optJSONObject(i);
+            if (candidate == null) continue;
+
+            JSONObject content = candidate.optJSONObject("content");
+            if (content == null) continue;
+
+            JSONArray parts = content.optJSONArray("parts");
+            if (parts == null) continue;
+
+            StringBuilder result = new StringBuilder();
+
+            for (int j = 0; j < parts.length(); j++) {
+                JSONObject part = parts.optJSONObject(j);
+                if (part == null) continue;
+
+                String text = part.optString("text", "");
+                if (!text.isEmpty()) {
+                    if (result.length() > 0) result.append("\n");
+                    result.append(text);
                 }
             }
+
+            if (result.length() > 0) return result.toString();
         }
-        return root.optString("output_text", "");
+
+        return "";
     }
 }
