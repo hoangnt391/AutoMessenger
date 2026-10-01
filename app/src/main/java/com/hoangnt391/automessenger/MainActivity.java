@@ -6,7 +6,7 @@ import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
-import android.view.View;
+import android.text.InputType;
 import android.widget.*;
 
 public class MainActivity extends Activity {
@@ -25,7 +25,7 @@ public class MainActivity extends Activity {
         l.setPadding(32,32,32,32);
 
         TextView title = new TextView(this);
-        title.setText("AutoMessenger\nAI tự trả lời Messenger");
+        title.setText("AutoMessenger\nGemini AI tự trả lời Messenger");
         title.setTextSize(25);
         l.addView(title);
 
@@ -35,19 +35,19 @@ public class MainActivity extends Activity {
         l.addView(enabled);
 
         auto = new Switch(this);
-        auto.setText("Tự động AI trả lời hội thoại");
+        auto.setText("Tự động Gemini trả lời hội thoại");
         auto.setChecked(p.getBoolean("auto", false));
         l.addView(auto);
 
         apiKey = new EditText(this);
-        apiKey.setHint("OpenAI API key (sk-...)");
-        apiKey.setInputType(0x00000081); // TYPE_CLASS_TEXT | TYPE_TEXT_VARIATION_PASSWORD
+        apiKey.setHint("Gemini API key");
+        apiKey.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         apiKey.setText(p.getString("api_key", ""));
         l.addView(apiKey);
 
         model = new EditText(this);
-        model.setHint("Model");
-        model.setText(p.getString("model", "gpt-5.6-luna"));
+        model.setHint("Gemini model");
+        model.setText(p.getString("model", "gemini-flash-latest"));
         l.addView(model);
 
         prompt = new EditText(this);
@@ -65,7 +65,9 @@ public class MainActivity extends Activity {
                 Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                         Uri.parse("package:" + getPackageName()));
                 startActivity(i);
-            } else Toast.makeText(this, "Đã có quyền bong bóng", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "Đã có quyền bong bóng", Toast.LENGTH_SHORT).show();
+            }
         });
         l.addView(overlay);
 
@@ -83,7 +85,6 @@ public class MainActivity extends Activity {
         status = new TextView(this);
         l.addView(status);
         updateStatus();
-
         setContentView(l);
     }
 
@@ -97,8 +98,8 @@ public class MainActivity extends Activity {
         boolean key = !p.getString("api_key", "").trim().isEmpty();
         status.setText("\nTrạng thái: " +
                 (accessibility ? "Trợ năng OK" : "Chưa bật Trợ năng") +
-                " | API key: " + (key ? "đã nhập" : "chưa nhập") +
-                "\nMở Messenger, vào một cuộc hội thoại rồi bật 'Tự động AI trả lời'.");
+                " | Gemini key: " + (key ? "đã nhập" : "chưa nhập") +
+                "\nMở Messenger, vào một cuộc hội thoại rồi bật tự động trả lời.");
     }
 
     private void saveAndApply() {
@@ -128,7 +129,7 @@ public class MainActivity extends Activity {
 
         if (autoWant && key.isEmpty()) {
             auto.setChecked(false);
-            Toast.makeText(this, "Muốn AI tự trả lời thì phải nhập OpenAI API key", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Muốn AI tự trả lời thì phải nhập Gemini API key", Toast.LENGTH_LONG).show();
             return;
         }
 
@@ -155,6 +156,6 @@ public class MainActivity extends Activity {
         s.putExtra(AutoMessengerService.EXTRA_DATA, data);
         startForegroundService(s);
 
-        Toast.makeText(this, "AutoMessenger đã chạy nền", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "AutoMessenger đã chạy nền với Gemini", Toast.LENGTH_SHORT).show();
     }
 }
