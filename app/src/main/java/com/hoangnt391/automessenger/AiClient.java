@@ -79,6 +79,46 @@ public final class AiClient {
         return text.trim();
     }
 
+    public static void validateKey(String apiKey, String model) throws Exception {
+        if (apiKey == null || apiKey.trim().isEmpty()) {
+            throw new IllegalArgumentException("Chưa nhập Gemini API key");
+        }
+        String modelName = model == null || model.trim().isEmpty()
+                ? "gemini-flash-latest" : model.trim();
+
+        JSONObject body = new JSONObject()
+                .put("contents", new JSONArray().put(
+                        new JSONObject().put("role", "user").put("parts", new JSONArray()
+                                .put(new JSONObject().put("text", "Reply only OK")))))
+                .put("generationConfig", new JSONObject().put("temperature", 0).put("maxOutputTokens", 8));
+
+        HttpURLConnection c = (HttpURLConnection) new URL(
+                "https://generativelanguage.googleapis.com/v1beta/models/"
+                        + modelName + ":generateContent").openConnection();
+        c.setRequestMethod("POST");
+        c.setConnectTimeout(6000);
+        c.setReadTimeout(8000);
+        c.setDoOutput(true);
+        c.setRequestProperty("x-goog-api-key", apiKey.trim());
+        c.setRequestProperty("Content-Type", "application/json");
+        c.setRequestProperty("Accept", "application/json");
+
+        try (OutputStream os = c.getOutputStream()) {
+            os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+        }
+
+        int code = c.getResponseCode();
+        InputStream stream = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream();
+        String response = readAll(stream);
+        if (code < 200 || code >= 300) {
+            throw new Exception("Gemini HTTP " + code + ": " + response);
+        }
+        String text = extractText(new JSONObject(response));
+        if (text == null || text.trim().isEmpty()) {
+            throw new Exception("Key/model không hợp lệ hoặc Gemini không trả dữ liệu");
+        }
+    }
+
     private static String readAll(InputStream in) throws Exception {
         if (in == null) return "";
         StringBuilder out = new StringBuilder();
