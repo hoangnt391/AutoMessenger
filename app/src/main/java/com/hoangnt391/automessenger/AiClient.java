@@ -41,7 +41,7 @@ public final class AiClient {
 
         body.put("generationConfig", new JSONObject()
                 .put("temperature", 0.7)
-                .put("maxOutputTokens", 300));
+                .put("maxOutputTokens", 160));
 
         URL url = new URL(
                 "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -49,8 +49,8 @@ public final class AiClient {
 
         HttpURLConnection c = (HttpURLConnection) url.openConnection();
         c.setRequestMethod("POST");
-        c.setConnectTimeout(15000);
-        c.setReadTimeout(30000);
+        c.setConnectTimeout(5000);
+        c.setReadTimeout(10000);
         c.setDoOutput(true);
         c.setRequestProperty("x-goog-api-key", apiKey.trim());
         c.setRequestProperty("Content-Type", "application/json");
