@@ -52,7 +52,7 @@ public class MainActivity extends Activity {
         l.addView(model);
 
         prompt = new EditText(this);
-        prompt.setHint("Phong cách trả lời AI");
+        prompt.setHint("Yêu cầu trả lời");
         prompt.setText(p.getString("prompt",
                 "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. " +
                 "Không nhắc rằng bạn là AI. Không dùng markdown."));
@@ -109,26 +109,62 @@ public class MainActivity extends Activity {
     private void updateStatus() {
         boolean accessibility = MessageAccessibilityService.isRunning();
         boolean key = !p.getString("api_key", "").trim().isEmpty();
+        boolean keyValid = p.getBoolean("key_valid", false);
         status.setText("\nTrạng thái: " +
                 (accessibility ? "Trợ năng OK" : "Chưa bật Trợ năng") +
-                " | Gemini key: " + (key ? "đã nhập" : "chưa nhập") +
+                " | Gemini key: " + (key ? (keyValid ? "đúng" : "chưa kiểm tra") : "chưa nhập") +
                 "\nMở Messenger, vào một cuộc hội thoại rồi bật tự động trả lời.");
     }
 
     private void saveAndApply() {
-        // Persist every field before applying runtime state so reopening the bubble
-        // always shows the latest configuration.
         final boolean want = enabled.isChecked();
         final boolean autoWant = auto.isChecked();
         final String key = apiKey.getText().toString().trim();
+        final String modelValue = model.getText().toString().trim();
+        final String request = prompt.getText().toString().trim();
 
         p.edit()
                 .putBoolean("auto", autoWant)
                 .putString("api_key", key)
-                .putString("model", model.getText().toString().trim())
-                .putString("prompt", prompt.getText().toString().trim())
+                .putString("model", modelValue)
+                .putString("prompt", request)
+                .putBoolean("key_valid", false)
                 .apply();
 
+        if (key.isEmpty()) {
+            if (autoWant) {
+                auto.setChecked(false);
+                Toast.makeText(this, "Muốn AI tự trả lời thì phải nhập Gemini API key", Toast.LENGTH_LONG).show();
+                updateStatus();
+                return;
+            }
+            applyServiceState(want, false);
+            return;
+        }
+
+        Toast.makeText(this, "Đang kiểm tra Gemini API key...", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            try {
+                AiClient.validateKey(key, modelValue);
+                runOnUiThread(() -> {
+                    p.edit().putBoolean("key_valid", true).apply();
+                    Toast.makeText(this, "API key hợp lệ ✓", Toast.LENGTH_SHORT).show();
+                    updateStatus();
+                    applyServiceState(want, autoWant);
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    p.edit().putBoolean("key_valid", false).apply();
+                    auto.setChecked(false);
+                    Toast.makeText(this, "API key sai hoặc model không hợp lệ", Toast.LENGTH_LONG).show();
+                    updateStatus();
+                    if (!autoWant) applyServiceState(want, false);
+                });
+            }
+        }).start();
+    }
+
+    private void applyServiceState(boolean want, boolean autoWant) {
         if (!want) {
             p.edit().putBoolean("enabled", false).apply();
             stopService(new Intent(this, AutoMessengerService.class));
@@ -142,9 +178,9 @@ public class MainActivity extends Activity {
             return;
         }
 
-        if (autoWant && key.isEmpty()) {
+        if (autoWant && !p.getBoolean("key_valid", false)) {
             auto.setChecked(false);
-            Toast.makeText(this, "Muốn AI tự trả lời thì phải nhập Gemini API key", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "API key chưa được xác thực", Toast.LENGTH_LONG).show();
             return;
         }
 
