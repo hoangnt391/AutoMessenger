@@ -45,6 +45,7 @@ public class AutoMessengerService extends Service {
     private boolean ocrBusy = false;
     private boolean settingsOpen = false;
     private View chatPanel;
+    private View closeTarget;
 
     @Override public void onCreate() {
         super.onCreate();
@@ -237,7 +238,8 @@ public class AutoMessengerService extends Service {
     }
 
     private void showBubble() {
-        if (bubble != null || !Settings.canDrawOverlays(this)) return;
+        if (bubble != null || !Settings.canDrawOverlays(this)
+                || getSharedPreferences("AutoMessenger", 0).getBoolean("bubble_hidden", false)) return;
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
 
         TextView v = new TextView(this);
@@ -245,16 +247,14 @@ public class AutoMessengerService extends Service {
         v.setGravity(Gravity.CENTER);
         v.setTextColor(Color.WHITE);
         v.setTypeface(null, android.graphics.Typeface.BOLD);
-
         GradientDrawable bg = new GradientDrawable();
         bg.setShape(GradientDrawable.OVAL);
-        bg.setColor(Color.rgb(35, 105, 210));
+        bg.setColor(Color.rgb(124, 77, 255));
         bg.setStroke(2, Color.WHITE);
         v.setBackground(bg);
+        v.setText("AI");
 
-        refreshBubbleLabel(v);
-
-        final int size = (int) (76 * getResources().getDisplayMetrics().density);
+        final int size = (int) (68 * getResources().getDisplayMetrics().density);
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                 size, size,
                 Build.VERSION.SDK_INT >= 26
@@ -283,14 +283,28 @@ public class AutoMessengerService extends Service {
                 if (event.getAction() == MotionEvent.ACTION_MOVE) {
                     int dx = (int) (downX - event.getRawX());
                     int dy = (int) (event.getRawY() - downY);
-                    if (Math.abs(dx) > 6 || Math.abs(dy) > 6) dragged = true;
+                    if (Math.abs(dx) > 6 || Math.abs(dy) > 6) {
+                        dragged = true;
+                        showCloseTarget();
+                    }
                     lp.x = Math.max(0, startX + dx);
                     lp.y = Math.max(0, startY + dy);
                     wm.updateViewLayout(v, lp);
                     return true;
                 }
                 if (event.getAction() == MotionEvent.ACTION_UP) {
-                    if (!dragged) {
+                    if (dragged) {
+                        boolean overClose = isOverCloseTarget(event.getRawX(), event.getRawY());
+                        hideCloseTarget();
+                        if (overClose) {
+                            getSharedPreferences("AutoMessenger", 0).edit()
+                                    .putBoolean("bubble_hidden", true).apply();
+                            removeBubbleOnly();
+                            Toast.makeText(AutoMessengerService.this,
+                                    "Đã đóng bong bóng. Có thể bật lại trong cài đặt.",
+                                    Toast.LENGTH_SHORT).show();
+                        }
+                    } else {
                         openSettings();
                     }
                     return true;
@@ -301,6 +315,55 @@ public class AutoMessengerService extends Service {
 
         wm.addView(v, lp);
         bubble = v;
+    }
+
+    private void showCloseTarget() {
+        if (closeTarget != null || wm == null) return;
+        TextView x = new TextView(this);
+        x.setText("✕");
+        x.setTextSize(24);
+        x.setGravity(Gravity.CENTER);
+        x.setTextColor(Color.WHITE);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setShape(GradientDrawable.OVAL);
+        bg.setColor(Color.rgb(220, 53, 69));
+        x.setBackground(bg);
+
+        int s = (int)(62 * getResources().getDisplayMetrics().density);
+        WindowManager.LayoutParams p = new WindowManager.LayoutParams(
+                s, s,
+                Build.VERSION.SDK_INT >= 26 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                        : WindowManager.LayoutParams.TYPE_PHONE,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                PixelFormat.TRANSLUCENT);
+        p.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        p.y = (int)(22 * getResources().getDisplayMetrics().density);
+        wm.addView(x, p);
+        closeTarget = x;
+    }
+
+    private boolean isOverCloseTarget(float rawX, float rawY) {
+        if (closeTarget == null) return false;
+        int[] loc = new int[2];
+        closeTarget.getLocationOnScreen(loc);
+        float cx = loc[0] + closeTarget.getWidth() / 2f;
+        float cy = loc[1] + closeTarget.getHeight() / 2f;
+        float dx = rawX - cx, dy = rawY - cy;
+        return Math.sqrt(dx * dx + dy * dy) <= closeTarget.getWidth() * 0.75f;
+    }
+
+    private void hideCloseTarget() {
+        if (closeTarget != null && wm != null) {
+            try { wm.removeView(closeTarget); } catch (Exception ignored) {}
+            closeTarget = null;
+        }
+    }
+
+    private void removeBubbleOnly() {
+        if (bubble != null && wm != null) {
+            try { wm.removeView(bubble); } catch (Exception ignored) {}
+            bubble = null;
+        }
     }
 
     private void openSettings() {
@@ -428,6 +491,7 @@ public class AutoMessengerService extends Service {
             recognizer = null;
         }
         closeChatPanel();
+        hideCloseTarget();
         if (bubble != null && wm != null) {
             try { wm.removeView(bubble); } catch (Exception ignored) {}
             bubble = null;
