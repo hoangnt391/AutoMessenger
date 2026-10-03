@@ -31,12 +31,21 @@ public class MessageAccessibilityService extends AccessibilityService {
         return instance != null;
     }
 
-    public static boolean isMessengerActive() {
+    public static boolean isChatAppActive() {
         MessageAccessibilityService s = instance;
         if (s == null) return false;
         AccessibilityNodeInfo root = s.getRootInActiveWindow();
         if (root == null || root.getPackageName() == null) return false;
-        return "com.facebook.orca".contentEquals(root.getPackageName());
+        String pkg = root.getPackageName().toString();
+        // Never act on AutoMessenger itself or Android system/settings screens.
+        return !pkg.equals("com.hoangnt391.automessenger")
+                && !pkg.equals("com.android.settings")
+                && !pkg.equals("com.android.systemui");
+    }
+
+    /** Backward-compatible name for older callers. */
+    public static boolean isMessengerActive() {
+        return isChatAppActive();
     }
 
     public static void handleScreenMessage(String text) {
@@ -77,7 +86,7 @@ public class MessageAccessibilityService extends AccessibilityService {
         incoming = incoming.trim();
 
         if (incoming.equals(lastSent) || incoming.equals(lastIncoming)) return;
-        if (System.currentTimeMillis() - lastReplyAt < 5000L) return;
+        if (System.currentTimeMillis() - lastReplyAt < 1500L) return;
         if (incoming.length() > 4000) incoming = incoming.substring(0, 4000);
 
         lastIncoming = incoming;
@@ -122,7 +131,7 @@ public class MessageAccessibilityService extends AccessibilityService {
         if (input == null) return false;
         replaceLastInput(input);
 
-        // Focus the real Messenger composer before changing its text.
+        // Focus the current chat app composer before changing its text.
         input.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
 
         Bundle args = new Bundle();
@@ -137,8 +146,30 @@ public class MessageAccessibilityService extends AccessibilityService {
         }
         if (!set) return false;
 
-        // Messenger can rebuild the send button immediately after text changes,
-        // so fetch a fresh tree instead of using the old root.
+        // Verify the composer really contains the requested reply before sending.
+        // Some chat apps accept ACTION_SET_TEXT but update their UI asynchronously.
+        boolean verified = false;
+        for (int attempt = 0; attempt < 4; attempt++) {
+            AccessibilityNodeInfo verifyRoot = getRootInActiveWindow();
+            AccessibilityNodeInfo verifyInput = findEditable(verifyRoot);
+            if (verifyInput != null && normalize(value(verifyInput.getText()))
+                    .equals(normalize(text))) {
+                verified = true;
+                break;
+            }
+            if (verifyInput != null) {
+                verifyInput.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+                verifyInput.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+            }
+            try { Thread.sleep(80L); } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        if (!verified) return false;
+
+        // Fetch a fresh tree because chat apps often rebuild the send button
+        // immediately after text changes.
         AccessibilityNodeInfo freshRoot = getRootInActiveWindow();
         if (freshRoot == null) return false;
 
@@ -199,7 +230,7 @@ public class MessageAccessibilityService extends AccessibilityService {
 
         if (looksLikeSend && node.isVisibleToUser()) return node;
 
-        // Messenger versions sometimes expose only an ImageButton with no
+        // Some chat apps expose only an ImageButton with no
         // descriptive text but an ID containing "send".
         if (node.isVisibleToUser() && cls.contains("imagebutton") && id.contains("send")) {
             return node;
@@ -284,7 +315,7 @@ public class MessageAccessibilityService extends AccessibilityService {
         if (id.contains("message") || id.contains("messenger") ||
                 desc.contains("message")) return true;
 
-        // Messenger frequently exposes chat text as TextView without a useful ID.
+        // Many chat apps expose chat text as TextView without a useful ID.
         if (cls.contains("textview")) {
             Rect r = new Rect();
             node.getBoundsInScreen(r);
@@ -298,7 +329,7 @@ public class MessageAccessibilityService extends AccessibilityService {
         node.getBoundsInScreen(r);
         if (r.right <= r.left) return false;
 
-        // In Messenger, outgoing bubbles are normally on the right and incoming
+        // In many chat layouts, outgoing bubbles are normally on the right and incoming
         // bubbles are on the left. Use a conservative threshold to avoid replying
         // to our own messages.
         int center = (r.left + r.right) / 2;
@@ -324,6 +355,11 @@ public class MessageAccessibilityService extends AccessibilityService {
 
     private String value(CharSequence s) {
         return s == null ? "" : s.toString();
+    }
+
+    private String normalize(String s) {
+        if (s == null) return "";
+        return s.replace("\u00a0", " ").trim().replaceAll("\\s+", " ");
     }
 
     @Override public void onInterrupt() {}
