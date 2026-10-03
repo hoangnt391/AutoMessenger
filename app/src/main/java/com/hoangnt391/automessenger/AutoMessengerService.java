@@ -101,7 +101,7 @@ public class AutoMessengerService extends Service {
                 return;
             }
             if (!getSharedPreferences("AutoMessenger", 0).getBoolean("auto", false)
-                    || !MessageAccessibilityService.isMessengerActive()
+                    || !MessageAccessibilityService.isChatAppActive()
                     || ocrBusy) {
                 Image old = reader.acquireLatestImage();
                 if (old != null) old.close();
