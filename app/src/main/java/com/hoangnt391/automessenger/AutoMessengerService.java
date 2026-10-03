@@ -10,6 +10,7 @@ import android.media.ImageReader;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.*;
+import android.util.DisplayMetrics;
 import android.provider.Settings;
 import android.view.*;
 import android.widget.TextView;
