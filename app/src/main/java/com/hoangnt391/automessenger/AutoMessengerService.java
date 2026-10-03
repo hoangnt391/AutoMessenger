@@ -26,6 +26,7 @@ import java.nio.ByteBuffer;
 import java.util.Locale;
 
 public class AutoMessengerService extends Service {
+    private static AutoMessengerService instance;
     public static final String EXTRA_RESULT_CODE = "result_code";
     public static final String EXTRA_DATA = "projection_data";
     private static final String CHANNEL = "automessenger_running";
@@ -49,6 +50,7 @@ public class AutoMessengerService extends Service {
 
     @Override public void onCreate() {
         super.onCreate();
+        instance = this;
         handler = new Handler(Looper.getMainLooper());
         recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
         createChannel();
@@ -235,6 +237,11 @@ public class AutoMessengerService extends Service {
         lastStableText = "";
         pendingCount = 0;
         ocrBusy = false;
+    }
+
+    public static void requestShowBubble() {
+        AutoMessengerService s = instance;
+        if (s != null) s.handler.post(s::showBubble);
     }
 
     private void showBubble() {
@@ -506,6 +513,7 @@ public class AutoMessengerService extends Service {
     }
 
     @Override public void onDestroy() {
+        instance = null;
         stopProjectionOnly();
         if (recognizer != null) {
             try { recognizer.close(); } catch (Exception ignored) {}
