@@ -5,6 +5,5 @@
     android:notificationTimeout="80"
     android:canRetrieveWindowContent="true"
     android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
-    android:packageNames="com.facebook.orca"
     android:description="@string/accessibility_description"
     android:settingsActivity="com.hoangnt391.automessenger.MainActivity" />
