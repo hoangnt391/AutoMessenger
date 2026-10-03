@@ -39,64 +39,85 @@ public class AutoMessengerService extends Service {
 
     private void startProjection(int resultCode, Intent data) {
         if (projection != null || data == null) return;
-        MediaProjectionManager mpm = (MediaProjectionManager)getSystemService(MEDIA_PROJECTION_SERVICE);
+        MediaProjectionManager mpm =
+                (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
         projection = mpm.getMediaProjection(resultCode, data);
-        if (projection != null) projection.registerCallback(new MediaProjection.Callback() {
-            @Override public void onStop() { stopProjectionOnly(); }
-        }, new Handler(Looper.getMainLooper()));
+        if (projection != null) {
+            projection.registerCallback(new MediaProjection.Callback() {
+                @Override public void onStop() {
+                    projection = null;
+                    // Do not turn off the AI switch when screen projection stops.
+                    // The accessibility service can still work with Messenger.
+                }
+            }, new Handler(Looper.getMainLooper()));
+        }
     }
 
     private void showBubble() {
         if (bubble != null || !Settings.canDrawOverlays(this)) return;
-        wm = (WindowManager)getSystemService(WINDOW_SERVICE);
+        wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+
         TextView v = new TextView(this);
-        v.setTextSize(11);
+        v.setTextSize(12);
         v.setGravity(Gravity.CENTER);
         v.setTextColor(Color.WHITE);
+        v.setTypeface(null, android.graphics.Typeface.BOLD);
+
         GradientDrawable bg = new GradientDrawable();
         bg.setShape(GradientDrawable.OVAL);
         bg.setColor(Color.rgb(35, 105, 210));
         bg.setStroke(2, Color.WHITE);
         v.setBackground(bg);
+
         refreshBubbleLabel(v);
 
+        // Larger, closer to the familiar Messenger floating-bubble size.
+        final int size = (int) (76 * getResources().getDisplayMetrics().density / 1.0f);
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                64, 64,
-                Build.VERSION.SDK_INT >= 26 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                size, size,
+                Build.VERSION.SDK_INT >= 26
+                        ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                         : WindowManager.LayoutParams.TYPE_PHONE,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                 PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.TOP | Gravity.END;
-        lp.x = 20;
+        lp.x = 12;
         lp.y = 220;
 
         v.setOnTouchListener(new View.OnTouchListener() {
             private int startX, startY;
             private float downX, downY;
             private boolean dragged;
+
             @Override public boolean onTouch(View view, MotionEvent event) {
                 if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                    startX = lp.x; startY = lp.y;
-                    downX = event.getRawX(); downY = event.getRawY();
+                    startX = lp.x;
+                    startY = lp.y;
+                    downX = event.getRawX();
+                    downY = event.getRawY();
                     dragged = false;
                     return true;
                 }
+
                 if (event.getAction() == MotionEvent.ACTION_MOVE) {
-                    int dx = (int)(downX - event.getRawX());
-                    int dy = (int)(event.getRawY() - downY);
+                    int dx = (int) (downX - event.getRawX());
+                    int dy = (int) (event.getRawY() - downY);
                     if (Math.abs(dx) > 6 || Math.abs(dy) > 6) dragged = true;
                     lp.x = Math.max(0, startX + dx);
                     lp.y = Math.max(0, startY + dy);
                     wm.updateViewLayout(v, lp);
                     return true;
                 }
+
                 if (event.getAction() == MotionEvent.ACTION_UP) {
                     if (!dragged) {
-                        android.content.SharedPreferences p = getSharedPreferences("AutoMessenger", 0);
+                        android.content.SharedPreferences p =
+                                getSharedPreferences("AutoMessenger", 0);
                         boolean enabled = !p.getBoolean("auto", false);
                         p.edit().putBoolean("auto", enabled).apply();
                         refreshBubbleLabel(v);
-                        Toast.makeText(AutoMessengerService.this,
+                        Toast.makeText(
+                                AutoMessengerService.this,
                                 enabled ? "Đã bật tự trả lời" : "Đã tạm dừng tự trả lời",
                                 Toast.LENGTH_SHORT).show();
                     }
@@ -105,12 +126,14 @@ public class AutoMessengerService extends Service {
                 return true;
             }
         });
+
         wm.addView(v, lp);
         bubble = v;
     }
 
     private void refreshBubbleLabel(TextView v) {
-        v.setText(getSharedPreferences("AutoMessenger", 0).getBoolean("auto", false) ? "AI ON" : "AI OFF");
+        v.setText(getSharedPreferences("AutoMessenger", 0)
+                .getBoolean("auto", false) ? "AI" : "AI");
     }
 
     private void stopProjectionOnly() {
@@ -126,7 +149,7 @@ public class AutoMessengerService extends Service {
             try { wm.removeView(bubble); } catch (Exception ignored) {}
             bubble = null;
         }
-        getSharedPreferences("AutoMessenger", 0).edit().putBoolean("enabled", false).apply();
+        // Keep the user's AI preference. Do not silently set auto=false.
         super.onDestroy();
     }
 
@@ -134,15 +157,20 @@ public class AutoMessengerService extends Service {
 
     private void createChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
-            NotificationChannel c = new NotificationChannel(CHANNEL, "AutoMessenger", NotificationManager.IMPORTANCE_LOW);
+            NotificationChannel c = new NotificationChannel(
+                    CHANNEL, "AutoMessenger", NotificationManager.IMPORTANCE_LOW);
             getSystemService(NotificationManager.class).createNotificationChannel(c);
         }
     }
 
     private Notification notification(String text) {
-        Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, CHANNEL)
+        Notification.Builder b = Build.VERSION.SDK_INT >= 26
+                ? new Notification.Builder(this, CHANNEL)
                 : new Notification.Builder(this);
-        return b.setContentTitle("AutoMessenger").setContentText(text)
-                .setSmallIcon(android.R.drawable.ic_dialog_info).setOngoing(true).build();
+        return b.setContentTitle("AutoMessenger")
+                .setContentText(text)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setOngoing(true)
+                .build();
     }
 }
