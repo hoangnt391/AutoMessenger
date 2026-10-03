@@ -1,5 +1,5 @@
 <resources>
     <string name="app_name">AutoMessenger</string>
     <string name="accessibility_label">AutoMessenger Accessibility</string>
-    <string name="accessibility_description">Tự động tìm ô nhập tin nhắn và gửi kịch bản trả lời trong Messenger.</string>
+    <string name="accessibility_description">Tự động nhận diện tin nhắn, nhập câu trả lời vào ô chat và gửi trong các ứng dụng nhắn tin được hỗ trợ.</string>
 </resources>
