@@ -100,7 +100,7 @@ public class MessageAccessibilityService extends AccessibilityService {
                 android.content.SharedPreferences p =
                         getSharedPreferences("AutoMessenger", 0);
                 String key = p.getString("api_key", "");
-                String model = p.getString("model", "gemini-flash-latest");
+                String model = p.getString("model", "gemini-3.5-flash-lite");
                 String prompt = p.getString("prompt",
                         "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. " +
                         "Không nhắc rằng bạn là AI. Không dùng markdown.");
@@ -114,13 +114,23 @@ public class MessageAccessibilityService extends AccessibilityService {
                         }
                     });
                 }
-            } catch (Exception ignored) {
-                // Keep the accessibility service alive.
+            } catch (Exception e) {
+                final String message = e.getMessage() == null ? "Lỗi Gemini không xác định" : e.getMessage();
+                new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
+                        android.widget.Toast.makeText(this,
+                                "Không trả lời được: " + shortError(message),
+                                android.widget.Toast.LENGTH_LONG).show());
             } finally {
                 new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
                         () -> replying = false, 1000L);
             }
         });
+    }
+
+    private String shortError(String message) {
+        String x = message == null ? "" : message.replace("\\n", " ").trim();
+        if (x.length() > 180) x = x.substring(0, 180) + "...";
+        return x.isEmpty() ? "kiểm tra API key, model và quyền Trợ năng." : x;
     }
 
     private boolean sendMessage(String text) {
@@ -166,7 +176,10 @@ public class MessageAccessibilityService extends AccessibilityService {
                 break;
             }
         }
-        if (!verified) return false;
+        if (!verified) {
+            android.widget.Toast.makeText(this, "Không xác nhận được ô nhập tin nhắn.", android.widget.Toast.LENGTH_SHORT).show();
+            return false;
+        }
 
         // Fetch a fresh tree because chat apps often rebuild the send button
         // immediately after text changes.
@@ -174,8 +187,15 @@ public class MessageAccessibilityService extends AccessibilityService {
         if (freshRoot == null) return false;
 
         AccessibilityNodeInfo send = findSendButton(freshRoot);
-        if (send == null) return false;
-        return clickNodeOrParent(send);
+        if (send == null) {
+            android.widget.Toast.makeText(this, "Không tìm thấy nút Gửi của ứng dụng chat.", android.widget.Toast.LENGTH_SHORT).show();
+            return false;
+        }
+        boolean clicked = clickNodeOrParent(send);
+        if (!clicked) {
+            android.widget.Toast.makeText(this, "Không bấm được nút Gửi.", android.widget.Toast.LENGTH_SHORT).show();
+        }
+        return clicked;
     }
 
     private AccessibilityNodeInfo findEditable(AccessibilityNodeInfo node) {
