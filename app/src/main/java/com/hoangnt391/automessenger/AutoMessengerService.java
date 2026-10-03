@@ -41,6 +41,7 @@ public class AutoMessengerService extends Service {
     private String pendingText = "";
     private int pendingCount = 0;
     private boolean ocrBusy = false;
+    private boolean settingsOpen = false;
 
     @Override public void onCreate() {
         super.onCreate();
@@ -287,22 +288,7 @@ public class AutoMessengerService extends Service {
                 }
                 if (event.getAction() == MotionEvent.ACTION_UP) {
                     if (!dragged) {
-                        android.content.SharedPreferences p =
-                                getSharedPreferences("AutoMessenger", 0);
-                        boolean enabled = !p.getBoolean("auto", false);
-                        p.edit().putBoolean("auto", enabled).apply();
-
-                        if (enabled) {
-                            startScreenCapture();
-                        } else {
-                            stopScreenCaptureOnly();
-                        }
-
-                        refreshBubbleLabel(v);
-                        Toast.makeText(
-                                AutoMessengerService.this,
-                                enabled ? "Đã bật tự trả lời" : "Đã tạm dừng tự trả lời",
-                                Toast.LENGTH_SHORT).show();
+                        openSettings();
                     }
                     return true;
                 }
@@ -312,6 +298,16 @@ public class AutoMessengerService extends Service {
 
         wm.addView(v, lp);
         bubble = v;
+    }
+
+    private void openSettings() {
+        if (settingsOpen) return;
+        settingsOpen = true;
+        Intent i = new Intent(this, MainActivity.class);
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        startActivity(i);
+        handler.postDelayed(() -> settingsOpen = false, 350);
     }
 
     private void refreshBubbleLabel(TextView v) {
