@@ -196,7 +196,7 @@ public class AutoMessengerService extends Service {
             }
 
             // Require the same OCR result twice to avoid reacting to a transient frame.
-            if (pendingCount >= 1 && !candidate.equals(lastStableText)) {
+            if (pendingCount >= 2 && !candidate.equals(lastStableText)) {
                 lastStableText = candidate;
                 MessageAccessibilityService.handleScreenMessage(candidate);
             }
@@ -398,8 +398,40 @@ public class AutoMessengerService extends Service {
         boolean autoOn = getSharedPreferences("AutoMessenger", 0).getBoolean("auto", false);
         status.setText(autoOn ? "● Đang tự động trả lời" : "○ Đang tắt tự động");
         status.setTextSize(14);
-        status.setPadding(0, 10, 0, 12);
+        status.setPadding(0, 10, 0, 8);
         panel.addView(status);
+
+        TextView promptLabel = new TextView(this);
+        promptLabel.setText("Yêu cầu trả lời");
+        promptLabel.setTextSize(13);
+        promptLabel.setTextColor(Color.DKGRAY);
+        promptLabel.setPadding(0, 8, 0, 4);
+        panel.addView(promptLabel);
+
+        android.widget.EditText promptInput = new android.widget.EditText(this);
+        promptInput.setText(getSharedPreferences("AutoMessenger", 0).getString(
+                "prompt",
+                "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. Không nhắc rằng bạn là AI."));
+        promptInput.setHint("Nhập cách bot phải trả lời...");
+        promptInput.setMinLines(3);
+        promptInput.setGravity(Gravity.TOP);
+        promptInput.setTextSize(14);
+        panel.addView(promptInput, new android.widget.LinearLayout.LayoutParams(
+                -1, (int)(92 * getResources().getDisplayMetrics().density)));
+
+        android.widget.Button savePrompt = new android.widget.Button(this);
+        savePrompt.setText("Lưu yêu cầu");
+        savePrompt.setOnClickListener(v -> {
+            String request = promptInput.getText().toString().trim();
+            if (request.isEmpty()) {
+                request = "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. Không nhắc rằng bạn là AI.";
+            }
+            getSharedPreferences("AutoMessenger", 0).edit()
+                    .putString("prompt", request)
+                    .apply();
+            Toast.makeText(this, "Đã lưu yêu cầu trả lời ✓", Toast.LENGTH_SHORT).show();
+        });
+        panel.addView(savePrompt);
 
         android.widget.Button toggle = new android.widget.Button(this);
         toggle.setText(autoOn ? "Tắt tự động trả lời" : "Bật tự động trả lời");
@@ -413,13 +445,6 @@ public class AutoMessengerService extends Service {
             toggle.setText(next ? "Tắt tự động trả lời" : "Bật tự động trả lời");
         });
         panel.addView(toggle);
-
-        TextView hint = new TextView(this);
-        hint.setText("Chạm ra ngoài để đóng. Cài đặt đầy đủ vẫn giữ ở ứng dụng AutoMessenger.");
-        hint.setTextSize(12);
-        hint.setTextColor(Color.GRAY);
-        hint.setPadding(0, 8, 0, 8);
-        panel.addView(hint);
 
         android.widget.Button settings = new android.widget.Button(this);
         settings.setText("Mở cài đặt");
@@ -436,10 +461,9 @@ public class AutoMessengerService extends Service {
         close.setOnClickListener(v -> closeChatPanel());
         panel.addView(close);
 
-        int width = (int)(320 * getResources().getDisplayMetrics().density);
-        int height = android.view.WindowManager.LayoutParams.WRAP_CONTENT;
+        int width = (int)(340 * getResources().getDisplayMetrics().density);
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                width, height,
+                width, WindowManager.LayoutParams.WRAP_CONTENT,
                 Build.VERSION.SDK_INT >= 26
                         ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                         : WindowManager.LayoutParams.TYPE_PHONE,
@@ -448,13 +472,8 @@ public class AutoMessengerService extends Service {
                 PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.TOP | Gravity.END;
         lp.x = 12;
-        lp.y = 300;
+        lp.y = 180;
 
-        panel.setOnTouchListener((v, e) -> false);
-        panel.setOnClickListener(v -> {});
-
-        wm.addView(panel, lp);
-        panel.setOnClickListener(v -> {});
         panel.setOnTouchListener((v, e) -> {
             if (e.getAction() == MotionEvent.ACTION_OUTSIDE) {
                 closeChatPanel();
@@ -462,6 +481,8 @@ public class AutoMessengerService extends Service {
             }
             return false;
         });
+
+        wm.addView(panel, lp);
         chatPanel = panel;
     }
 
