@@ -7,8 +7,8 @@ import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.*;
 import android.provider.Settings;
-import android.view.*;
-import android.widget.TextView;
+import android.view.*;\nimport android.graphics.Color;\nimport android.graphics.drawable.GradientDrawable;
+import android.widget.TextView;\nimport android.content.SharedPreferences;
 
 public class AutoMessengerService extends Service {
     public static final String EXTRA_RESULT_CODE = "result_code";
@@ -50,8 +50,8 @@ public class AutoMessengerService extends Service {
         if (bubble != null || !Settings.canDrawOverlays(this)) return;
 
         TextView v = new TextView(this);
-        v.setText("AI");
-        v.setTextSize(15);
+        v.setText(getSharedPreferences("AutoMessenger", 0).getBoolean("auto", false) ? "AI ON" : "AI OFF");
+        v.setTextSize(12);
         v.setGravity(Gravity.CENTER);
         v.setTextColor(0xffffffff);
         v.setBackgroundResource(android.R.drawable.btn_default);
