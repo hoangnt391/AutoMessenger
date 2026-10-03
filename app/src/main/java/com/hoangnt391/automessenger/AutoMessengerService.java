@@ -29,7 +29,7 @@ public class AutoMessengerService extends Service {
     public static final String EXTRA_RESULT_CODE = "result_code";
     public static final String EXTRA_DATA = "projection_data";
     private static final String CHANNEL = "automessenger_running";
-    private static final long OCR_INTERVAL_MS = 900L;
+    private static final long OCR_INTERVAL_MS = 450L;
 
     private MediaProjection projection;
     private VirtualDisplay virtualDisplay;
@@ -44,6 +44,7 @@ public class AutoMessengerService extends Service {
     private int pendingCount = 0;
     private boolean ocrBusy = false;
     private boolean settingsOpen = false;
+    private View chatPanel;
 
     @Override public void onCreate() {
         super.onCreate();
@@ -194,7 +195,7 @@ public class AutoMessengerService extends Service {
             }
 
             // Require the same OCR result twice to avoid reacting to a transient frame.
-            if (pendingCount >= 2 && !candidate.equals(lastStableText)) {
+            if (pendingCount >= 1 && !candidate.equals(lastStableText)) {
                 lastStableText = candidate;
                 MessageAccessibilityService.handleScreenMessage(candidate);
             }
@@ -303,13 +304,109 @@ public class AutoMessengerService extends Service {
     }
 
     private void openSettings() {
-        if (settingsOpen) return;
-        settingsOpen = true;
-        Intent i = new Intent(this, MainActivity.class);
-        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP
-                | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        startActivity(i);
-        handler.postDelayed(() -> settingsOpen = false, 350);
+        if (chatPanel != null) {
+            closeChatPanel();
+            return;
+        }
+        showChatPanel();
+    }
+
+    private void showChatPanel() {
+        if (wm == null || chatPanel != null) return;
+
+        android.widget.LinearLayout panel = new android.widget.LinearLayout(this);
+        panel.setOrientation(android.widget.LinearLayout.VERTICAL);
+        panel.setPadding(28, 24, 28, 20);
+
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(Color.WHITE);
+        bg.setCornerRadius(28);
+        bg.setStroke(2, Color.LTGRAY);
+        panel.setBackground(bg);
+
+        TextView title = new TextView(this);
+        title.setText("AutoMessenger AI");
+        title.setTextSize(19);
+        title.setTextColor(Color.DKGRAY);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        panel.addView(title);
+
+        TextView status = new TextView(this);
+        boolean autoOn = getSharedPreferences("AutoMessenger", 0).getBoolean("auto", false);
+        status.setText(autoOn ? "● Đang tự động trả lời" : "○ Đang tắt tự động");
+        status.setTextSize(14);
+        status.setPadding(0, 10, 0, 12);
+        panel.addView(status);
+
+        android.widget.Button toggle = new android.widget.Button(this);
+        toggle.setText(autoOn ? "Tắt tự động trả lời" : "Bật tự động trả lời");
+        toggle.setOnClickListener(v -> {
+            android.content.SharedPreferences p = getSharedPreferences("AutoMessenger", 0);
+            boolean next = !p.getBoolean("auto", false);
+            p.edit().putBoolean("auto", next).apply();
+            if (next && projection != null && imageReader == null) startScreenCapture();
+            if (!next) stopScreenCaptureOnly();
+            status.setText(next ? "● Đang tự động trả lời" : "○ Đang tắt tự động");
+            toggle.setText(next ? "Tắt tự động trả lời" : "Bật tự động trả lời");
+        });
+        panel.addView(toggle);
+
+        TextView hint = new TextView(this);
+        hint.setText("Chạm ra ngoài để đóng. Cài đặt đầy đủ vẫn giữ ở ứng dụng AutoMessenger.");
+        hint.setTextSize(12);
+        hint.setTextColor(Color.GRAY);
+        hint.setPadding(0, 8, 0, 8);
+        panel.addView(hint);
+
+        android.widget.Button settings = new android.widget.Button(this);
+        settings.setText("Mở cài đặt");
+        settings.setOnClickListener(v -> {
+            closeChatPanel();
+            Intent i = new Intent(this, MainActivity.class);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            startActivity(i);
+        });
+        panel.addView(settings);
+
+        android.widget.Button close = new android.widget.Button(this);
+        close.setText("Đóng");
+        close.setOnClickListener(v -> closeChatPanel());
+        panel.addView(close);
+
+        int width = (int)(320 * getResources().getDisplayMetrics().density);
+        int height = android.view.WindowManager.LayoutParams.WRAP_CONTENT;
+        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                width, height,
+                Build.VERSION.SDK_INT >= 26
+                        ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                        : WindowManager.LayoutParams.TYPE_PHONE,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                        | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+                PixelFormat.TRANSLUCENT);
+        lp.gravity = Gravity.TOP | Gravity.END;
+        lp.x = 12;
+        lp.y = 300;
+
+        panel.setOnTouchListener((v, e) -> false);
+        panel.setOnClickListener(v -> {});
+
+        wm.addView(panel, lp);
+        panel.setOnClickListener(v -> {});
+        panel.setOnTouchListener((v, e) -> {
+            if (e.getAction() == MotionEvent.ACTION_OUTSIDE) {
+                closeChatPanel();
+                return true;
+            }
+            return false;
+        });
+        chatPanel = panel;
+    }
+
+    private void closeChatPanel() {
+        if (chatPanel != null && wm != null) {
+            try { wm.removeView(chatPanel); } catch (Exception ignored) {}
+            chatPanel = null;
+        }
     }
 
     private void refreshBubbleLabel(TextView v) {
@@ -330,6 +427,7 @@ public class AutoMessengerService extends Service {
             try { recognizer.close(); } catch (Exception ignored) {}
             recognizer = null;
         }
+        closeChatPanel();
         if (bubble != null && wm != null) {
             try { wm.removeView(bubble); } catch (Exception ignored) {}
             bubble = null;
