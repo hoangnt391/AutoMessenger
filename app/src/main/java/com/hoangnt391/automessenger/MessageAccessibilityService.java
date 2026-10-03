@@ -50,7 +50,7 @@ public class MessageAccessibilityService extends AccessibilityService {
         if (!getSharedPreferences("AutoMessenger", 0).getBoolean("auto", false)) return;
         if (replying) return;
         if (incoming.equals(lastSent) || incoming.equals(lastIncoming)) return;
-        if (System.currentTimeMillis() - lastReplyAt < 5000L) return;
+        if (System.currentTimeMillis() - lastReplyAt < 1500L) return;
         if (incoming.length() > 4000) incoming = incoming.substring(0, 4000);
         lastIncoming = incoming;
         generateAndSend(incoming);
