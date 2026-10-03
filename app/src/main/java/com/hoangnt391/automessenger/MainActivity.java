@@ -121,8 +121,16 @@ public class MainActivity extends Activity {
                 startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
         l.addView(accessibility);
 
+        Button showBubble = new Button(this);
+        showBubble.setText("Hiện lại bong bóng");
+        showBubble.setOnClickListener(v -> {
+            p.edit().putBoolean("bubble_hidden", false).apply();
+            Toast.makeText(this, "Đã bật lại bong bóng ✓", Toast.LENGTH_SHORT).show();
+        });
+        l.addView(showBubble);
+
         Button save = new Button(this);
-        save.setText("LƯU & KHỞI ĐỘNG");
+        save.setText("LƯU & THOÁT");
         save.setTextSize(15);
         save.setAllCaps(false);
         save.setOnClickListener(v -> saveAndApply());
@@ -133,6 +141,17 @@ public class MainActivity extends Activity {
         status.setTextColor(0xFF5F5866);
         status.setPadding(4, 16, 4, 12);
         l.addView(status);
+
+        Button exit = new Button(this);
+        exit.setText("Thoát");
+        exit.setAllCaps(false);
+        exit.setOnClickListener(v -> {
+            p.edit().putBoolean("enabled", false).apply();
+            stopService(new Intent(this, AutoMessengerService.class));
+            Toast.makeText(this, "Đã tắt và thoát AutoMessenger", Toast.LENGTH_SHORT).show();
+            finishAffinity();
+        });
+        l.addView(exit);
 
         scroll.addView(l);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
@@ -152,7 +171,7 @@ public class MainActivity extends Activity {
             model.setText(p.getString("model", "gemini-flash-latest"));
             prompt.setText(p.getString("prompt",
                     "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. " +
-                    "Không nhắc rằng bạn là AI. Không dùng markdown."));
+                    "Không nhắc rằng bạn là AI."));
             updateStatus();
         }
     }
@@ -160,10 +179,9 @@ public class MainActivity extends Activity {
     private void updateStatus() {
         boolean accessibility = MessageAccessibilityService.isRunning();
         boolean key = !p.getString("api_key", "").trim().isEmpty();
-        boolean keyValid = p.getBoolean("key_valid", false);
         status.setText("\nTrạng thái: " +
                 (accessibility ? "Trợ năng OK" : "Chưa bật Trợ năng") +
-                " | Gemini key: " + (key ? (keyValid ? "đúng" : "chưa kiểm tra") : "chưa nhập") +
+                " | Gemini key: " + (key ? "đã nhập" : "chưa nhập") +
                 "\nMở Messenger, vào một cuộc hội thoại rồi bật tự động trả lời.");
     }
 
@@ -171,48 +189,35 @@ public class MainActivity extends Activity {
         final boolean want = enabled.isChecked();
         final boolean autoWant = auto.isChecked();
         final String key = apiKey.getText().toString().trim();
-        final String modelValue = model.getText().toString().trim();
-        final String request = prompt.getText().toString().trim();
+        final String modelValue = model.getText().toString().trim().isEmpty()
+                ? "gemini-flash-latest" : model.getText().toString().trim();
+        final String request = prompt.getText().toString().trim().isEmpty()
+                ? "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. Không nhắc rằng bạn là AI."
+                : prompt.getText().toString().trim();
 
         p.edit()
+                .putBoolean("enabled", want)
                 .putBoolean("auto", autoWant)
                 .putString("api_key", key)
                 .putString("model", modelValue)
                 .putString("prompt", request)
-                .putBoolean("key_valid", false)
+                .putBoolean("key_valid", !key.isEmpty())
+                .putBoolean("bubble_hidden", false)
                 .apply();
 
-        if (key.isEmpty()) {
-            if (autoWant) {
-                auto.setChecked(false);
-                Toast.makeText(this, "Muốn AI tự trả lời thì phải nhập Gemini API key", Toast.LENGTH_LONG).show();
-                updateStatus();
-                return;
-            }
-            applyServiceState(want, false);
+        if (!want) {
+            applyServiceState(false, false);
+            Toast.makeText(this, "Đã tắt AutoMessenger", Toast.LENGTH_SHORT).show();
+            finish();
             return;
         }
 
-        Toast.makeText(this, "Đang kiểm tra Gemini API key...", Toast.LENGTH_SHORT).show();
-        new Thread(() -> {
-            try {
-                AiClient.validateKey(key, modelValue);
-                runOnUiThread(() -> {
-                    p.edit().putBoolean("key_valid", true).apply();
-                    Toast.makeText(this, "API key hợp lệ ✓", Toast.LENGTH_SHORT).show();
-                    updateStatus();
-                    applyServiceState(want, autoWant);
-                });
-            } catch (Exception e) {
-                runOnUiThread(() -> {
-                    p.edit().putBoolean("key_valid", false).apply();
-                    auto.setChecked(false);
-                    Toast.makeText(this, "API key sai hoặc model không hợp lệ", Toast.LENGTH_LONG).show();
-                    updateStatus();
-                    if (!autoWant) applyServiceState(want, false);
-                });
-            }
-        }).start();
+        if (!Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "Hãy cấp quyền bong bóng nổi trước", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        applyServiceState(true, autoWant);
     }
 
     private void applyServiceState(boolean want, boolean autoWant) {
@@ -226,12 +231,6 @@ public class MainActivity extends Activity {
         if (!Settings.canDrawOverlays(this)) {
             enabled.setChecked(false);
             Toast.makeText(this, "Hãy cấp quyền bong bóng nổi trước", Toast.LENGTH_LONG).show();
-            return;
-        }
-
-        if (autoWant && !p.getBoolean("key_valid", false)) {
-            auto.setChecked(false);
-            Toast.makeText(this, "API key chưa được xác thực", Toast.LENGTH_LONG).show();
             return;
         }
 
