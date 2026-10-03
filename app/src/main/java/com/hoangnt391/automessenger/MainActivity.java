@@ -15,6 +15,7 @@ public class MainActivity extends Activity {
     private Switch enabled, auto;
     private EditText prompt, apiKey, model;
     private TextView status;
+    private boolean firstLoad = true;
 
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
@@ -86,11 +87,23 @@ public class MainActivity extends Activity {
         l.addView(status);
         updateStatus();
         setContentView(l);
+        firstLoad = false;
     }
 
     @Override protected void onResume() {
         super.onResume();
-        if (status != null) updateStatus();
+        if (status != null) {
+            // Reload saved values whenever the settings screen is shown again.
+            p = getSharedPreferences("AutoMessenger", 0);
+            enabled.setChecked(p.getBoolean("enabled", false));
+            auto.setChecked(p.getBoolean("auto", false));
+            apiKey.setText(p.getString("api_key", ""));
+            model.setText(p.getString("model", "gemini-flash-latest"));
+            prompt.setText(p.getString("prompt",
+                    "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. " +
+                    "Không nhắc rằng bạn là AI. Không dùng markdown."));
+            updateStatus();
+        }
     }
 
     private void updateStatus() {
@@ -103,6 +116,8 @@ public class MainActivity extends Activity {
     }
 
     private void saveAndApply() {
+        // Persist every field before applying runtime state so reopening the bubble
+        // always shows the latest configuration.
         final boolean want = enabled.isChecked();
         final boolean autoWant = auto.isChecked();
         final String key = apiKey.getText().toString().trim();
