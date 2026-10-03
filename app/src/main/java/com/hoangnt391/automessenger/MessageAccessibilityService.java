@@ -1,6 +1,7 @@
 package com.hoangnt391.automessenger;
 
 import android.accessibilityservice.AccessibilityService;
+import android.graphics.Rect;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.accessibility.AccessibilityEvent;
@@ -32,13 +33,15 @@ public class MessageAccessibilityService extends AccessibilityService {
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event == null) return;
+
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return;
 
+        // Always refresh the current Messenger composer. This is important because
+        // Messenger recreates the composer node when entering/leaving a chat.
         AccessibilityNodeInfo input = findEditable(root);
         if (input != null && input.isVisibleToUser()) {
-            if (lastInput != null && lastInput != input) lastInput.recycle();
-            lastInput = input;
+            replaceLastInput(input);
         }
 
         if (!getSharedPreferences("AutoMessenger", 0).getBoolean("auto", false)) return;
@@ -48,9 +51,8 @@ public class MessageAccessibilityService extends AccessibilityService {
         if (incoming == null || incoming.trim().isEmpty()) return;
         incoming = incoming.trim();
 
-        // Ignore our own last reply and duplicate accessibility events.
         if (incoming.equals(lastSent) || incoming.equals(lastIncoming)) return;
-        if (System.currentTimeMillis() - lastReplyAt < 7000L) return;
+        if (System.currentTimeMillis() - lastReplyAt < 5000L) return;
         if (incoming.length() > 4000) incoming = incoming.substring(0, 4000);
 
         lastIncoming = incoming;
@@ -61,12 +63,14 @@ public class MessageAccessibilityService extends AccessibilityService {
         replying = true;
         worker.execute(() -> {
             try {
-                android.content.SharedPreferences p = getSharedPreferences("AutoMessenger", 0);
+                android.content.SharedPreferences p =
+                        getSharedPreferences("AutoMessenger", 0);
                 String key = p.getString("api_key", "");
                 String model = p.getString("model", "gemini-flash-latest");
                 String prompt = p.getString("prompt",
                         "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. " +
                         "Không nhắc rằng bạn là AI. Không dùng markdown.");
+
                 String reply = AiClient.reply(key, model, prompt, incoming);
                 if (reply != null && !reply.trim().isEmpty()) {
                     new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
@@ -77,10 +81,10 @@ public class MessageAccessibilityService extends AccessibilityService {
                     });
                 }
             } catch (Exception ignored) {
-                // Keep the accessibility service alive; the user can inspect the in-app status/log.
+                // Keep the accessibility service alive.
             } finally {
                 new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
-                        () -> replying = false, 1200L);
+                        () -> replying = false, 1000L);
             }
         });
     }
@@ -91,22 +95,58 @@ public class MessageAccessibilityService extends AccessibilityService {
 
         AccessibilityNodeInfo input = findEditable(root);
         if (input == null) return false;
-        lastInput = input;
+        replaceLastInput(input);
+
+        // Focus the real Messenger composer before changing its text.
+        input.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
 
         Bundle args = new Bundle();
         args.putCharSequence(
                 AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text);
         boolean set = input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+
+        if (!set) {
+            // A few Messenger builds expose the composer as an EditText but do not
+            // report isEditable() correctly. Try the same node once more after focus.
+            set = input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+        }
         if (!set) return false;
 
-        AccessibilityNodeInfo send = findSendButton(root);
+        // Messenger can rebuild the send button immediately after text changes,
+        // so fetch a fresh tree instead of using the old root.
+        AccessibilityNodeInfo freshRoot = getRootInActiveWindow();
+        if (freshRoot == null) return false;
+
+        AccessibilityNodeInfo send = findSendButton(freshRoot);
         if (send == null) return false;
         return clickNodeOrParent(send);
     }
 
     private AccessibilityNodeInfo findEditable(AccessibilityNodeInfo node) {
         if (node == null) return null;
-        if (node.isVisibleToUser() && node.isEditable()) return node;
+
+        if (node.isVisibleToUser()) {
+            String cls = value(node.getClassName()).toLowerCase(Locale.ROOT);
+            String text = value(node.getText());
+            String desc = value(node.getContentDescription());
+            String hint = value(node.getHintText());
+            String all = (text + " " + desc + " " + hint).toLowerCase(Locale.ROOT);
+
+            if (node.isEditable() ||
+                    cls.contains("edittext") ||
+                    all.contains("type a message") ||
+                    all.contains("write a message") ||
+                    all.contains("nhập tin nhắn") ||
+                    all.equals("aa") ||
+                    all.endsWith(" aa")) {
+                if (cls.contains("edittext") || node.isEditable()) return node;
+                if (all.contains("message") || all.contains("nhập") || all.contains(" aa")) {
+                    AccessibilityNodeInfo child = findEditable(node);
+                    if (child != null && child != node) return child;
+                }
+            }
+        }
+
         for (int i = 0; i < node.getChildCount(); i++) {
             AccessibilityNodeInfo result = findEditable(node.getChild(i));
             if (result != null) return result;
@@ -116,15 +156,28 @@ public class MessageAccessibilityService extends AccessibilityService {
 
     private AccessibilityNodeInfo findSendButton(AccessibilityNodeInfo node) {
         if (node == null) return null;
+
         String text = value(node.getText());
         String desc = value(node.getContentDescription());
+        String hint = value(node.getHintText());
         String id = value(node.getViewIdResourceName()).toLowerCase(Locale.ROOT);
-        String combined = (text + " " + desc + " " + id).toLowerCase(Locale.ROOT);
+        String cls = value(node.getClassName()).toLowerCase(Locale.ROOT);
+        String combined = (text + " " + desc + " " + hint + " " + id)
+                .toLowerCase(Locale.ROOT);
 
-        if (combined.matches(".*\\b(send|gửi|gui)\\b.*") ||
-                id.contains("send") || id.contains("message_send")) {
-            if (node.isVisibleToUser() && node.isClickable()) return node;
-            if (node.isVisibleToUser()) return node;
+        boolean looksLikeSend =
+                combined.contains("send") ||
+                combined.contains("gửi") ||
+                combined.contains("gui") ||
+                id.contains("message_send") ||
+                id.endsWith("_send");
+
+        if (looksLikeSend && node.isVisibleToUser()) return node;
+
+        // Messenger versions sometimes expose only an ImageButton with no
+        // descriptive text but an ID containing "send".
+        if (node.isVisibleToUser() && cls.contains("imagebutton") && id.contains("send")) {
+            return node;
         }
 
         for (int i = 0; i < node.getChildCount(); i++) {
@@ -136,7 +189,7 @@ public class MessageAccessibilityService extends AccessibilityService {
 
     private boolean clickNodeOrParent(AccessibilityNodeInfo node) {
         AccessibilityNodeInfo current = node;
-        for (int i = 0; i < 5 && current != null; i++) {
+        for (int i = 0; i < 6 && current != null; i++) {
             if (current.isVisibleToUser() && current.isClickable()) {
                 return current.performAction(AccessibilityNodeInfo.ACTION_CLICK);
             }
@@ -146,41 +199,102 @@ public class MessageAccessibilityService extends AccessibilityService {
     }
 
     private String extractLatestMessage(AccessibilityNodeInfo root, AccessibilityEvent event) {
-        List<String> candidates = new ArrayList<>();
-        if (event.getText() != null) {
-            for (CharSequence s : event.getText()) {
-                if (!TextUtils.isEmpty(s)) candidates.add(s.toString());
-            }
+        List<AccessibilityNodeInfo> sources = new ArrayList<>();
+        AccessibilityNodeInfo source = event.getSource();
+        if (source != null) sources.add(source);
+
+        // Prefer the event source: on Messenger this is normally the message
+        // TextView that changed, which is much safer than scanning the whole page.
+        for (AccessibilityNodeInfo n : sources) {
+            String candidate = messageTextFromNode(n);
+            if (candidate != null) return candidate;
         }
-        collectMessageTexts(root, candidates);
+
+        List<AccessibilityNodeInfo> candidates = new ArrayList<>();
+        collectMessageNodes(root, candidates);
 
         String best = "";
-        for (String s : candidates) {
-            s = s == null ? "" : s.trim();
-            if (s.isEmpty() || s.length() > 4000) continue;
-            if (isUiText(s)) continue;
-            best = s;
+        for (AccessibilityNodeInfo n : candidates) {
+            String candidate = messageTextFromNode(n);
+            if (candidate == null) continue;
+            if (candidate.equals(lastSent)) continue;
+            if (candidate.equals(lastIncoming)) continue;
+            best = candidate;
         }
         return best;
     }
 
-    private void collectMessageTexts(AccessibilityNodeInfo node, List<String> out) {
+    private void collectMessageNodes(AccessibilityNodeInfo node,
+                                      List<AccessibilityNodeInfo> out) {
         if (node == null) return;
-        String id = value(node.getViewIdResourceName()).toLowerCase(Locale.ROOT);
+
         String text = value(node.getText()).trim();
         if (node.isVisibleToUser() && !text.isEmpty() &&
-                (id.contains("message") || id.contains("messenger"))) {
-            out.add(text);
+                !node.isEditable() && isMessageLikeNode(node) &&
+                !isLikelyOutgoing(node)) {
+            out.add(node);
         }
+
         for (int i = 0; i < node.getChildCount(); i++) {
-            collectMessageTexts(node.getChild(i), out);
+            collectMessageNodes(node.getChild(i), out);
         }
     }
 
+    private String messageTextFromNode(AccessibilityNodeInfo node) {
+        if (node == null || !node.isVisibleToUser() || node.isEditable()) return null;
+
+        String text = value(node.getText()).trim();
+        if (text.isEmpty() || text.length() > 4000) return null;
+        if (isUiText(text)) return null;
+        if (!isMessageLikeNode(node)) return null;
+        if (isLikelyOutgoing(node)) return null;
+        return text;
+    }
+
+    private boolean isMessageLikeNode(AccessibilityNodeInfo node) {
+        String id = value(node.getViewIdResourceName()).toLowerCase(Locale.ROOT);
+        String cls = value(node.getClassName()).toLowerCase(Locale.ROOT);
+        String desc = value(node.getContentDescription()).toLowerCase(Locale.ROOT);
+
+        if (id.contains("message") || id.contains("messenger") ||
+                desc.contains("message")) return true;
+
+        // Messenger frequently exposes chat text as TextView without a useful ID.
+        if (cls.contains("textview")) {
+            Rect r = new Rect();
+            node.getBoundsInScreen(r);
+            return r.top > 120 && r.bottom > r.top;
+        }
+        return false;
+    }
+
+    private boolean isLikelyOutgoing(AccessibilityNodeInfo node) {
+        Rect r = new Rect();
+        node.getBoundsInScreen(r);
+        if (r.right <= r.left) return false;
+
+        // In Messenger, outgoing bubbles are normally on the right and incoming
+        // bubbles are on the left. Use a conservative threshold to avoid replying
+        // to our own messages.
+        int center = (r.left + r.right) / 2;
+        int screenWidth = getResources().getDisplayMetrics().widthPixels;
+        return center > (screenWidth * 0.58f);
+    }
+
     private boolean isUiText(String s) {
-        String x = s.toLowerCase(Locale.ROOT);
+        String x = s.toLowerCase(Locale.ROOT).trim();
         return x.equals("send") || x.equals("gửi") || x.equals("gui") ||
-                x.equals("message") || x.contains("type a message");
+                x.equals("message") || x.equals("messenger") ||
+                x.equals("aa") || x.equals("more") || x.equals("thêm") ||
+                x.contains("type a message") || x.contains("write a message") ||
+                x.contains("nhập tin nhắn");
+    }
+
+    private void replaceLastInput(AccessibilityNodeInfo input) {
+        if (lastInput != null && lastInput != input) {
+            try { lastInput.recycle(); } catch (Exception ignored) {}
+        }
+        lastInput = input;
     }
 
     private String value(CharSequence s) {
