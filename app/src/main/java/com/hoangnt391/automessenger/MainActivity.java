@@ -125,6 +125,7 @@ public class MainActivity extends Activity {
         showBubble.setText("Hiện lại bong bóng");
         showBubble.setOnClickListener(v -> {
             p.edit().putBoolean("bubble_hidden", false).apply();
+            AutoMessengerService.requestShowBubble();
             Toast.makeText(this, "Đã bật lại bong bóng ✓", Toast.LENGTH_SHORT).show();
         });
         l.addView(showBubble);
@@ -258,5 +259,6 @@ public class MainActivity extends Activity {
         startForegroundService(s);
 
         Toast.makeText(this, "AutoMessenger đã chạy nền với Gemini", Toast.LENGTH_SHORT).show();
+        finish();
     }
 }
