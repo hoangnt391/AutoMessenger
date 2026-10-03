@@ -63,7 +63,7 @@ public class MessageAccessibilityService extends AccessibilityService {
             try {
                 android.content.SharedPreferences p = getSharedPreferences("AutoMessenger", 0);
                 String key = p.getString("api_key", "");
-                String model = p.getString("model", "gpt-5.6-luna");
+                String model = p.getString("model", "gemini-flash-latest");
                 String prompt = p.getString("prompt",
                         "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. " +
                         "Không nhắc rằng bạn là AI. Không dùng markdown.");
