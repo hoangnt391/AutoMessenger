@@ -41,10 +41,12 @@ public class MessageAccessibilityService extends AccessibilityService {
         AccessibilityNodeInfo root = s.getRootInActiveWindow();
         if (root == null || root.getPackageName() == null) return false;
         String pkg = root.getPackageName().toString();
-        // Never act on AutoMessenger itself or Android system/settings screens.
-        return !pkg.equals("com.hoangnt391.automessenger")
-                && !pkg.equals("com.android.settings")
-                && !pkg.equals("com.android.systemui");
+        // Only inspect supported chat apps. This prevents the OCR/accessibility
+        // engine from treating unrelated apps as incoming conversations.
+        return pkg.equals("com.facebook.orca")
+                || pkg.equals("com.zing.zalo")
+                || pkg.equals("com.whatsapp")
+                || pkg.equals("org.telegram.messenger");
     }
 
     /** Backward-compatible name for older callers. */
