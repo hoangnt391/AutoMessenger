@@ -81,9 +81,9 @@ public class MainActivity extends Activity {
         card.addView(apiKey);
 
         model = new EditText(this);
-        model.setHint("Model  •  gemini-3.5-flash-lite");
+        model.setHint("Model  •  gemini-flash-latest");
         model.setSingleLine(true);
-        model.setText(p.getString("model", "gemini-3.5-flash-lite"));
+        model.setText(p.getString("model", "gemini-flash-latest"));
         card.addView(model);
 
         prompt = new EditText(this);
@@ -169,7 +169,7 @@ public class MainActivity extends Activity {
             enabled.setChecked(p.getBoolean("enabled", false));
             auto.setChecked(p.getBoolean("auto", false));
             apiKey.setText(p.getString("api_key", ""));
-            model.setText(p.getString("model", "gemini-3.5-flash-lite"));
+            model.setText(p.getString("model", "gemini-flash-latest"));
             prompt.setText(p.getString("prompt",
                     "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. " +
                     "Không nhắc rằng bạn là AI."));
@@ -191,7 +191,7 @@ public class MainActivity extends Activity {
         final boolean autoWant = auto.isChecked();
         final String key = apiKey.getText().toString().trim();
         final String modelValue = model.getText().toString().trim().isEmpty()
-                ? "gemini-3.5-flash-lite" : model.getText().toString().trim();
+                ? "gemini-flash-latest" : model.getText().toString().trim();
         final String request = prompt.getText().toString().trim().isEmpty()
                 ? "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. Không nhắc rằng bạn là AI."
                 : prompt.getText().toString().trim();
