@@ -13,7 +13,7 @@ public class MainActivity extends Activity {
     private static final int REQ_CAPTURE = 9001;
     private android.content.SharedPreferences p;
     private Switch enabled, auto;
-    private EditText prompt, apiKey, model;
+    private EditText prompt;
     private TextView status;
     private boolean firstLoad = true;
 
@@ -68,23 +68,11 @@ public class MainActivity extends Activity {
         card.addView(enabled);
 
         auto = new Switch(this);
-        auto.setText("Tự động trả lời bằng Gemini");
+        auto.setText("Tự động trả lời bằng ChatGPT");
         auto.setTextSize(15);
         auto.setChecked(p.getBoolean("auto", false));
         card.addView(auto);
 
-        apiKey = new EditText(this);
-        apiKey.setHint("Gemini API key");
-        apiKey.setSingleLine(true);
-        apiKey.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        apiKey.setText(p.getString("api_key", ""));
-        card.addView(apiKey);
-
-        model = new EditText(this);
-        model.setHint("Model  •  gemini-flash-latest");
-        model.setSingleLine(true);
-        model.setText(p.getString("model", "gemini-flash-latest"));
-        card.addView(model);
 
         prompt = new EditText(this);
         prompt.setHint("Yêu cầu trả lời");
@@ -168,8 +156,6 @@ public class MainActivity extends Activity {
             p = getSharedPreferences("AutoMessenger", 0);
             enabled.setChecked(p.getBoolean("enabled", false));
             auto.setChecked(p.getBoolean("auto", false));
-            apiKey.setText(p.getString("api_key", ""));
-            model.setText(p.getString("model", "gemini-flash-latest"));
             prompt.setText(p.getString("prompt",
                     "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. " +
                     "Không nhắc rằng bạn là AI."));
@@ -179,19 +165,16 @@ public class MainActivity extends Activity {
 
     private void updateStatus() {
         boolean accessibility = MessageAccessibilityService.isRunning();
-        boolean key = !p.getString("api_key", "").trim().isEmpty();
         status.setText("\nTrạng thái: " +
                 (accessibility ? "Trợ năng OK" : "Chưa bật Trợ năng") +
-                " | Gemini key: " + (key ? "đã nhập" : "chưa nhập") +
+ +
+                " | ChatGPT: ứng dụng" +
                 "\nMở Messenger, vào một cuộc hội thoại rồi bật tự động trả lời.");
     }
 
     private void saveAndApply() {
         final boolean want = enabled.isChecked();
         final boolean autoWant = auto.isChecked();
-        final String key = apiKey.getText().toString().trim();
-        final String modelValue = model.getText().toString().trim().isEmpty()
-                ? "gemini-flash-latest" : model.getText().toString().trim();
         final String request = prompt.getText().toString().trim().isEmpty()
                 ? "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. Không nhắc rằng bạn là AI."
                 : prompt.getText().toString().trim();
@@ -258,7 +241,7 @@ public class MainActivity extends Activity {
         s.putExtra(AutoMessengerService.EXTRA_DATA, data);
         startForegroundService(s);
 
-        Toast.makeText(this, "AutoMessenger đã chạy nền với Gemini", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "AutoMessenger đã chạy nền với ChatGPT", Toast.LENGTH_SHORT).show();
         finish();
     }
 }
