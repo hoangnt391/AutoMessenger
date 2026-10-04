@@ -198,7 +198,7 @@ public class MessageAccessibilityService extends AccessibilityService {
             AccessibilityNodeInfo currentInput = findEditable(getRootInActiveWindow());
             if (currentInput != null) {
                 currentInput.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
-                clicked = currentInput.performAction(AccessibilityNodeInfo.ACTION_IME_ENTER);
+                clicked = currentInput.performAction(0x00400000 /* ACTION_IME_ENTER (API 30) */);
             }
         }
         if (!clicked) {
