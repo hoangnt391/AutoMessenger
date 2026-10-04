@@ -181,10 +181,7 @@ public class MainActivity extends Activity {
         p.edit()
                 .putBoolean("enabled", want)
                 .putBoolean("auto", autoWant)
-                .putString("api_key", key)
-                .putString("model", modelValue)
                 .putString("prompt", request)
-                .putBoolean("key_valid", !key.isEmpty())
                 .putBoolean("bubble_hidden", false)
                 .apply();
 
