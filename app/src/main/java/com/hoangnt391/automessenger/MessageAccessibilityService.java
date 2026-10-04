@@ -137,6 +137,42 @@ public class MessageAccessibilityService extends AccessibilityService {
         });
     }
 
+    /** Generate an answer for the question typed in the AI bubble, without sending it to the chat app. */
+    public void generateManualReply(final String question, final ManualReplyCallback callback) {
+        final String q = question == null ? "" : question.trim();
+        if (q.isEmpty()) return;
+
+        worker.execute(() -> {
+            try {
+                android.content.SharedPreferences p =
+                        getSharedPreferences("AutoMessenger", 0);
+                String key = p.getString("api_key", "");
+                String model = p.getString("model", "gemini-3.5-flash-lite");
+                String prompt = p.getString("prompt",
+                        "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. " +
+                        "Chỉ trả về nội dung câu trả lời, không giải thích, không markdown.");
+
+                String reply = AiClient.reply(key, model, prompt, q);
+                final String answer = reply == null ? "" : reply.trim();
+                if (!answer.isEmpty()) {
+                    AutoMessengerService.setLastConversation(q, answer);
+                }
+
+                new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
+                        callback.onResult(q, answer, null));
+            } catch (Exception e) {
+                final String message = e.getMessage() == null
+                        ? "Lỗi Gemini không xác định" : shortError(e.getMessage());
+                new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
+                        callback.onResult(q, "", message));
+            }
+        });
+    }
+
+    public interface ManualReplyCallback {
+        void onResult(String question, String answer, String error);
+    }
+
     private String shortError(String message) {
         String x = message == null ? "" : message.replace("\\n", " ").trim();
         if (x.length() > 180) x = x.substring(0, 180) + "...";
