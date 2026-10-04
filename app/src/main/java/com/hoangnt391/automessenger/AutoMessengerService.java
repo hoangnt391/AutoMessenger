@@ -553,11 +553,7 @@ public class AutoMessengerService extends Service {
 
 
     private MessageAccessibilityService getAccessibilityServiceInstance() {
-        try {
-            java.lang.reflect.Field f = MessageAccessibilityService.class.getDeclaredField("instance");
-            f.setAccessible(true);
-            return (MessageAccessibilityService) f.get(null);
-        } catch (Exception ignored) { return null; }
+        return MessageAccessibilityService.getInstance();
     }
 
     private void copyToClipboard(String label, String text) {
