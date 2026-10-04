@@ -391,115 +391,186 @@ public class AutoMessengerService extends Service {
     private void showChatPanel() {
         if (wm == null || chatPanel != null) return;
 
+        final float d = getResources().getDisplayMetrics().density;
+
         android.widget.LinearLayout panel = new android.widget.LinearLayout(this);
         panel.setOrientation(android.widget.LinearLayout.VERTICAL);
-        panel.setPadding(28, 24, 28, 20);
+        panel.setPadding((int)(16*d), (int)(14*d), (int)(16*d), (int)(12*d));
 
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(Color.WHITE);
-        bg.setCornerRadius(28);
-        bg.setStroke(2, Color.LTGRAY);
+        bg.setCornerRadius(26*d);
+        bg.setStroke((int)(1*d), 0xFFE3E0E8);
         panel.setBackground(bg);
 
         TextView title = new TextView(this);
         title.setText("AutoMessenger AI");
-        title.setTextSize(19);
-        title.setTextColor(Color.DKGRAY);
+        title.setTextSize(18);
+        title.setTextColor(0xFF241F29);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         panel.addView(title);
 
         TextView status = new TextView(this);
         boolean autoOn = getSharedPreferences("AutoMessenger", 0).getBoolean("auto", false);
         status.setText(autoOn ? "● Đang tự động trả lời" : "○ Đang tắt tự động");
-        status.setTextSize(14);
-        status.setPadding(0, 10, 0, 8);
+        status.setTextSize(12);
+        status.setTextColor(0xFF77717D);
+        status.setPadding(0, (int)(3*d), 0, (int)(8*d));
         panel.addView(status);
 
-        TextView questionLabel = new TextView(this);
-        questionLabel.setText("Câu hỏi gần nhất");
-        questionLabel.setTextSize(13);
-        questionLabel.setTextColor(Color.DKGRAY);
-        questionLabel.setPadding(0, 8, 0, 4);
-        panel.addView(questionLabel);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.setFillViewport(true);
+        android.widget.LinearLayout messages = new android.widget.LinearLayout(this);
+        messages.setOrientation(android.widget.LinearLayout.VERTICAL);
+        messages.setPadding(0, (int)(4*d), 0, (int)(8*d));
 
-        TextView question = new TextView(this);
-        question.setText(lastQuestion.isEmpty() ? "Chưa nhận được câu hỏi." : lastQuestion);
-        question.setTextSize(14);
-        question.setTextColor(Color.BLACK);
-        question.setPadding(12, 10, 12, 10);
-        panel.addView(question);
+        String initialQuestion = lastQuestion;
+        String initialAnswer = lastAnswer;
+        if (!initialQuestion.isEmpty()) {
+            addChatBubble(messages, initialQuestion, true);
+        }
+        if (!initialAnswer.isEmpty()) {
+            addChatBubble(messages, initialAnswer, false);
+        }
+        if (initialQuestion.isEmpty() && initialAnswer.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("Nhập câu hỏi bên dưới để bot tạo câu trả lời.");
+            empty.setTextSize(13);
+            empty.setTextColor(0xFF77717D);
+            empty.setGravity(Gravity.CENTER);
+            empty.setPadding(8, (int)(24*d), 8, (int)(24*d));
+            messages.addView(empty);
+        }
 
-        android.widget.Button copyQuestion = new android.widget.Button(this);
-        copyQuestion.setText("Sao chép câu hỏi");
-        copyQuestion.setOnClickListener(v -> copyToClipboard("Câu hỏi", lastQuestion));
-        panel.addView(copyQuestion);
+        scroll.addView(messages);
+        panel.addView(scroll, new android.widget.LinearLayout.LayoutParams(
+                -1, 0, 1f));
 
-        TextView answerLabel = new TextView(this);
-        answerLabel.setText("Câu trả lời AI");
-        answerLabel.setTextSize(13);
-        answerLabel.setTextColor(Color.DKGRAY);
-        answerLabel.setPadding(0, 8, 0, 4);
-        panel.addView(answerLabel);
+        android.widget.LinearLayout composer = new android.widget.LinearLayout(this);
+        composer.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        composer.setGravity(Gravity.CENTER_VERTICAL);
+        composer.setPadding(0, (int)(5*d), 0, 0);
 
-        TextView answer = new TextView(this);
-        answer.setText(lastAnswer.isEmpty() ? "Chưa có câu trả lời." : lastAnswer);
-        answer.setTextSize(14);
-        answer.setTextColor(Color.BLACK);
-        answer.setPadding(12, 10, 12, 10);
-        panel.addView(answer);
+        GradientDrawable inputBg = new GradientDrawable();
+        inputBg.setColor(0xFFF4F1F7);
+        inputBg.setCornerRadius(24*d);
+
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setHint("Nhắn tin");
+        input.setTextSize(15);
+        input.setSingleLine(true);
+        input.setPadding((int)(16*d), 0, (int)(10*d), 0);
+        input.setBackground(inputBg);
+        input.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEND);
+        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        composer.addView(input, new android.widget.LinearLayout.LayoutParams(
+                0, (int)(50*d), 1f));
+
+        final TextView send = new TextView(this);
+        send.setText("➤");
+        send.setTextSize(23);
+        send.setGravity(Gravity.CENTER);
+        send.setTextColor(Color.WHITE);
+        send.setTypeface(null, android.graphics.Typeface.BOLD);
+        GradientDrawable sendBg = new GradientDrawable();
+        sendBg.setShape(GradientDrawable.OVAL);
+        sendBg.setColor(0xFF7C4DFF);
+        send.setBackground(sendBg);
+        int sendSize = (int)(46*d);
+        android.widget.LinearLayout.LayoutParams sendLp =
+                new android.widget.LinearLayout.LayoutParams(sendSize, sendSize);
+        sendLp.leftMargin = (int)(8*d);
+        composer.addView(send, sendLp);
+
+        final Runnable generate = () -> {
+            String q = input.getText().toString().trim();
+            if (q.isEmpty()) return;
+
+            input.setText("");
+            addChatBubble(messages, q, true);
+            TextView thinking = new TextView(this);
+            thinking.setText("Đang tạo câu trả lời…");
+            thinking.setTextSize(13);
+            thinking.setTextColor(0xFF77717D);
+            thinking.setPadding((int)(14*d), (int)(8*d), (int)(14*d), (int)(8*d));
+            messages.addView(thinking);
+            scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
+
+            send.setEnabled(false);
+            send.setAlpha(0.5f);
+
+            MessageAccessibilityService service = getAccessibilityServiceInstance();
+            if (service == null) {
+                messages.removeView(thinking);
+                addChatBubble(messages, "Chưa bật Trợ năng.", false);
+                send.setEnabled(true);
+                send.setAlpha(1f);
+                return;
+            }
+
+            service.generateManualReply(q, (question, answer, error) -> {
+                messages.removeView(thinking);
+                if (error != null || answer == null || answer.trim().isEmpty()) {
+                    addChatBubble(messages,
+                            error == null ? "Không tạo được câu trả lời." : error,
+                            false);
+                } else {
+                    addChatBubble(messages, answer, false);
+                }
+                send.setEnabled(true);
+                send.setAlpha(1f);
+                scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
+            });
+        };
+
+        send.setOnClickListener(v -> generate.run());
+        input.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEND) {
+                generate.run();
+                return true;
+            }
+            return false;
+        });
+
+        composer.setContentDescription("Ô nhập tin nhắn và nút gửi");
+        panel.addView(composer);
+
+        android.widget.LinearLayout actions = new android.widget.LinearLayout(this);
+        actions.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        actions.setGravity(Gravity.CENTER_VERTICAL);
 
         android.widget.Button copyAnswer = new android.widget.Button(this);
         copyAnswer.setText("Sao chép câu trả lời");
+        copyAnswer.setAllCaps(false);
+        copyAnswer.setTextSize(12);
         copyAnswer.setOnClickListener(v -> copyToClipboard("Câu trả lời", lastAnswer));
-        panel.addView(copyAnswer);
+        actions.addView(copyAnswer, new android.widget.LinearLayout.LayoutParams(
+                0, (int)(42*d), 1f));
 
         android.widget.Button putAnswer = new android.widget.Button(this);
-        putAnswer.setText("Đưa câu trả lời vào ô chat (chưa gửi)");
+        putAnswer.setText("Đưa vào ô chat");
+        putAnswer.setAllCaps(false);
+        putAnswer.setTextSize(12);
         putAnswer.setOnClickListener(v -> {
-            MessageAccessibilityService s = MessageAccessibilityService.isRunning()
-                    ? getAccessibilityServiceInstance() : null;
-            if (s != null && s.putTextInComposerOnly(lastAnswer)) {
-                Toast.makeText(this, "Đã đưa câu trả lời vào ô chat. Kiểm tra rồi bấm Gửi.", Toast.LENGTH_SHORT).show();
+            MessageAccessibilityService service = getAccessibilityServiceInstance();
+            if (service != null && service.putTextInComposerOnly(lastAnswer)) {
+                Toast.makeText(this,
+                        "Đã đưa câu trả lời vào ô chat. Kiểm tra rồi bấm Gửi.",
+                        Toast.LENGTH_SHORT).show();
             } else {
                 Toast.makeText(this, "Không tìm thấy ô chat hiện tại.", Toast.LENGTH_SHORT).show();
             }
         });
-        panel.addView(putAnswer);
+        actions.addView(putAnswer, new android.widget.LinearLayout.LayoutParams(
+                0, (int)(42*d), 1f));
 
-        TextView promptLabel = new TextView(this);
-        promptLabel.setText("Yêu cầu trả lời");
-        promptLabel.setTextSize(13);
-        promptLabel.setTextColor(Color.DKGRAY);
-        promptLabel.setPadding(0, 8, 0, 4);
-        panel.addView(promptLabel);
-
-        android.widget.EditText promptInput = new android.widget.EditText(this);
-        promptInput.setText(getSharedPreferences("AutoMessenger", 0).getString(
-                "prompt",
-                "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. Không nhắc rằng bạn là AI."));
-        promptInput.setHint("Nhập cách bot phải trả lời...");
-        promptInput.setMinLines(3);
-        promptInput.setGravity(Gravity.TOP);
-        promptInput.setTextSize(14);
-        panel.addView(promptInput, new android.widget.LinearLayout.LayoutParams(
-                -1, (int)(92 * getResources().getDisplayMetrics().density)));
-
-        android.widget.Button savePrompt = new android.widget.Button(this);
-        savePrompt.setText("Lưu yêu cầu");
-        savePrompt.setOnClickListener(v -> {
-            String request = promptInput.getText().toString().trim();
-            if (request.isEmpty()) {
-                request = "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. Không nhắc rằng bạn là AI.";
-            }
-            getSharedPreferences("AutoMessenger", 0).edit()
-                    .putString("prompt", request)
-                    .apply();
-            Toast.makeText(this, "Đã lưu yêu cầu trả lời ✓", Toast.LENGTH_SHORT).show();
-        });
-        panel.addView(savePrompt);
+        panel.addView(actions);
 
         android.widget.Button toggle = new android.widget.Button(this);
         toggle.setText(autoOn ? "Tắt tự động trả lời" : "Bật tự động trả lời");
+        toggle.setAllCaps(false);
+        toggle.setTextSize(12);
         toggle.setOnClickListener(v -> {
             android.content.SharedPreferences p = getSharedPreferences("AutoMessenger", 0);
             boolean next = !p.getBoolean("auto", false);
@@ -511,24 +582,9 @@ public class AutoMessengerService extends Service {
         });
         panel.addView(toggle);
 
-        android.widget.Button settings = new android.widget.Button(this);
-        settings.setText("Mở cài đặt");
-        settings.setOnClickListener(v -> {
-            closeChatPanel();
-            Intent i = new Intent(this, MainActivity.class);
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-            startActivity(i);
-        });
-        panel.addView(settings);
-
-        android.widget.Button close = new android.widget.Button(this);
-        close.setText("Đóng");
-        close.setOnClickListener(v -> closeChatPanel());
-        panel.addView(close);
-
-        int width = (int)(340 * getResources().getDisplayMetrics().density);
+        int width = (int)(360 * d);
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                width, WindowManager.LayoutParams.WRAP_CONTENT,
+                width, (int)(560*d),
                 Build.VERSION.SDK_INT >= 26
                         ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                         : WindowManager.LayoutParams.TYPE_PHONE,
@@ -536,8 +592,8 @@ public class AutoMessengerService extends Service {
                         | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                 PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.TOP | Gravity.END;
-        lp.x = 12;
-        lp.y = 180;
+        lp.x = 10;
+        lp.y = 120;
 
         panel.setOnTouchListener((v, e) -> {
             if (e.getAction() == MotionEvent.ACTION_OUTSIDE) {
@@ -551,6 +607,48 @@ public class AutoMessengerService extends Service {
         chatPanel = panel;
     }
 
+    private void addChatBubble(android.widget.LinearLayout container, String text, boolean user) {
+        final float d = getResources().getDisplayMetrics().density;
+
+        TextView bubbleText = new TextView(this);
+        bubbleText.setText(text == null ? "" : text);
+        bubbleText.setTextSize(14);
+        bubbleText.setTextColor(user ? Color.WHITE : 0xFF28232D);
+        bubbleText.setPadding((int)(14*d), (int)(9*d), (int)(14*d), (int)(9*d));
+
+        GradientDrawable bubbleBg = new GradientDrawable();
+        bubbleBg.setColor(user ? 0xFF7C4DFF : 0xFFF1EEF4);
+        bubbleBg.setCornerRadius(18*d);
+        bubbleText.setBackground(bubbleBg);
+
+        android.widget.LinearLayout row = new android.widget.LinearLayout(this);
+        row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        row.setGravity(user ? Gravity.RIGHT : Gravity.LEFT);
+        row.setPadding(0, (int)(3*d), 0, (int)(3*d));
+
+        android.widget.LinearLayout.LayoutParams bubbleLp =
+                new android.widget.LinearLayout.LayoutParams(
+                        (int)(300*d), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+        if (user) bubbleLp.gravity = Gravity.RIGHT;
+        else bubbleLp.gravity = Gravity.LEFT;
+
+        row.addView(bubbleText, bubbleLp);
+        container.addView(row);
+
+        if (!user) {
+            android.widget.Button copy = new android.widget.Button(this);
+            copy.setText("Sao chép");
+            copy.setAllCaps(false);
+            copy.setTextSize(11);
+            copy.setOnClickListener(v -> copyToClipboard("Câu trả lời", text));
+            android.widget.LinearLayout.LayoutParams copyLp =
+                    new android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                            (int)(34*d));
+            copyLp.gravity = Gravity.LEFT;
+            container.addView(copy, copyLp);
+        }
+    }
 
     private MessageAccessibilityService getAccessibilityServiceInstance() {
         return MessageAccessibilityService.getInstance();
