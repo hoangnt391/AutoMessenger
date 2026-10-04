@@ -137,32 +137,24 @@ public class MessageAccessibilityService extends AccessibilityService {
         });
     }
 
-    /** Generate an answer for the question typed in the AI bubble, without sending it to the chat app. */
+    /** Sends the bubble question to the installed ChatGPT app and returns its real reply. */
     public void generateManualReply(final String question, final ManualReplyCallback callback) {
         final String q = question == null ? "" : question.trim();
         if (q.isEmpty()) return;
-
         worker.execute(() -> {
             try {
-                android.content.SharedPreferences p =
-                        getSharedPreferences("AutoMessenger", 0);
-                String key = p.getString("api_key", "");
-                String model = p.getString("model", "gemini-3.5-flash-lite");
+                android.content.SharedPreferences p = getSharedPreferences("AutoMessenger", 0);
                 String prompt = p.getString("prompt",
                         "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. " +
                         "Chỉ trả về nội dung câu trả lời, không giải thích, không markdown.");
-
-                String reply = AiClient.reply(key, model, prompt, q);
-                final String answer = reply == null ? "" : reply.trim();
-                if (!answer.isEmpty()) {
-                    AutoMessengerService.setLastConversation(q, answer);
-                }
-
+                final String answer = requestChatGptReply(prompt, q).trim();
+                if (answer.isEmpty()) throw new Exception("ChatGPT trả về câu trả lời trống.");
+                AutoMessengerService.setLastConversation(q, answer);
                 new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
                         callback.onResult(q, answer, null));
             } catch (Exception e) {
                 final String message = e.getMessage() == null
-                        ? "Lỗi Gemini không xác định" : shortError(e.getMessage());
+                        ? "Không kết nối được với ChatGPT." : shortError(e.getMessage());
                 new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
                         callback.onResult(q, "", message));
             }
@@ -191,85 +183,127 @@ public class MessageAccessibilityService extends AccessibilityService {
         final String question = buildChatGptQuestion(instructions, incoming);
         if (question.trim().isEmpty()) throw new IllegalArgumentException("Câu hỏi trống.");
 
-        final AccessibilityNodeInfo before = getRootInActiveWindow();
+        AccessibilityNodeInfo before = getRootInActiveWindow();
         final String returnPackage = before == null || before.getPackageName() == null
                 ? "" : before.getPackageName().toString();
+        safeRecycle(before);
 
-        final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
-        final java.util.concurrent.CountDownLatch opened = new java.util.concurrent.CountDownLatch(1);
-        final java.util.concurrent.atomic.AtomicReference<String> openError =
-                new java.util.concurrent.atomic.AtomicReference<>("");
-
-        main.post(() -> {
-            try {
-                android.content.Intent intent = new android.content.Intent(
-                        android.content.Intent.ACTION_VIEW,
-                        android.net.Uri.parse("https://chatgpt.com/?temporary-chat=true"));
-                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-                        | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
-
-                boolean hasChatGpt = false;
-                try {
-                    getPackageManager().getPackageInfo("com.openai.chatgpt", 0);
-                    hasChatGpt = true;
-                } catch (Exception ignored) {}
-
-                if (hasChatGpt) intent.setPackage("com.openai.chatgpt");
-                startActivity(intent);
-            } catch (Exception e) {
-                openError.set(e.getMessage() == null ? "Không mở được ChatGPT." : e.getMessage());
-            } finally {
-                opened.countDown();
-            }
-        });
-        opened.await(5, java.util.concurrent.TimeUnit.SECONDS);
-        if (!openError.get().isEmpty()) throw new Exception(openError.get());
-
-        AccessibilityNodeInfo chatRoot = waitForChatGptRoot(15000L);
+        openInstalledChatGpt();
+        AccessibilityNodeInfo chatRoot = waitForChatGptRoot(20000L);
+        safeRecycle(chatRoot);
         if (chatRoot == null) {
-            throw new Exception("Không đọc được giao diện ChatGPT. Hãy mở ChatGPT và cấp Trợ năng cho AutoMessenger.");
+            throw new Exception("Không mở được ứng dụng ChatGPT. Hãy cài ChatGPT và bật Trợ năng cho AutoMessenger.");
         }
 
-        final java.util.Set<String> baseline = new java.util.HashSet<>();
-        collectVisibleTexts(chatRoot, baseline);
-
-        AccessibilityNodeInfo composer = findChatGptComposer(chatRoot);
+        AccessibilityNodeInfo composer = waitForChatGptComposer(12000L);
         if (composer == null) throw new Exception("Không tìm thấy ô nhập ChatGPT.");
 
-        composer.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
-        Bundle args = new Bundle();
-        args.putCharSequence(
-                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, question);
-        boolean set = composer.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
-
-        if (!set) {
-            // A clipboard is deliberately NOT used here: it would expose the prompt
-            // to the system clipboard. Accessibility ACTION_SET_TEXT is the preferred path.
-            throw new Exception("ChatGPT không nhận được nội dung vào ô nhập.");
+        if (!setNodeTextAndVerify(composer, question, 3000L)) {
+            safeRecycle(composer);
+            throw new Exception("ChatGPT không nhận được câu hỏi. Ô nhập chưa nhận được nội dung.");
         }
 
-        AccessibilityNodeInfo verify = findChatGptComposer(getRootInActiveWindow());
-        if (verify == null || !normalize(value(verify.getText())).equals(normalize(question))) {
-            throw new Exception("Không xác nhận được nội dung trong ô ChatGPT.");
-        }
-
-        AccessibilityNodeInfo send = findChatGptSendButton(getRootInActiveWindow());
+        AccessibilityNodeInfo fresh = getRootInActiveWindow();
+        AccessibilityNodeInfo send = findChatGptSendButton(fresh, composer);
+        safeRecycle(fresh);
         if (send == null || !clickNodeOrParent(send)) {
+            safeRecycle(send);
+            safeRecycle(composer);
             throw new Exception("Không tìm thấy nút Gửi của ChatGPT.");
         }
+        safeRecycle(send);
 
-        String answer = waitForChatGptAnswer(question, baseline, 60000L);
+        String answer = waitForChatGptAnswer(question, 90000L);
+        safeRecycle(composer);
         if (answer == null || answer.trim().isEmpty()) {
-            throw new Exception("ChatGPT chưa trả về câu trả lời.");
+            throw new Exception("Đã gửi câu hỏi nhưng chưa đọc được câu trả lời từ ChatGPT.");
         }
 
         if (!returnPackage.isEmpty() && !returnPackage.equals("com.openai.chatgpt")) {
-            main.postDelayed(() -> returnToPackage(returnPackage), 150L);
+            final String pkg = returnPackage;
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                    () -> returnToPackage(pkg), 200L);
         }
-
-        // Clear short-lived local references before returning. Nothing is persisted.
-        questionCleanup(composer, chatRoot);
         return answer.trim();
+    }
+
+    private void openInstalledChatGpt() throws Exception {
+        final android.content.pm.PackageManager pm = getPackageManager();
+        try { pm.getPackageInfo("com.openai.chatgpt", 0); }
+        catch (Exception e) { throw new Exception("Chưa cài ứng dụng ChatGPT (com.openai.chatgpt)."); }
+
+        final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+        final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.atomic.AtomicReference<Exception> error =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        main.post(() -> {
+            try {
+                android.content.Intent launch = pm.getLaunchIntentForPackage("com.openai.chatgpt");
+                if (launch == null) throw new Exception("Không tìm thấy màn hình mở ChatGPT.");
+                launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK |
+                        android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                startActivity(launch);
+                done.countDown();
+
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                    try {
+                        android.content.Intent url = new android.content.Intent(
+                                android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse("https://chatgpt.com/?temporary-chat=true"));
+                        url.setPackage("com.openai.chatgpt");
+                        url.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK |
+                                android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                        startActivity(url);
+                    } catch (Exception ignored) {}
+                }, 350L);
+            } catch (Exception e) {
+                error.set(e);
+                done.countDown();
+            }
+        });
+        if (!done.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            throw new Exception("Hết thời gian mở ứng dụng ChatGPT.");
+        if (error.get() != null) throw error.get();
+    }
+
+    private AccessibilityNodeInfo waitForChatGptComposer(long timeoutMs) throws InterruptedException {
+        long end = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < end) {
+            AccessibilityNodeInfo root = getRootInActiveWindow();
+            if (isChatGptWindow(root)) {
+                AccessibilityNodeInfo composer = findChatGptComposer(root);
+                if (composer != null) {
+                    safeRecycle(root);
+                    return composer;
+                }
+            }
+            safeRecycle(root);
+            Thread.sleep(200L);
+        }
+        return null;
+    }
+
+    private boolean setNodeTextAndVerify(AccessibilityNodeInfo node, String text, long timeoutMs)
+            throws InterruptedException {
+        if (node == null) return false;
+        node.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+        Bundle args = new Bundle();
+        args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text);
+        long end = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < end) {
+            boolean ok = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+            if (ok) {
+                Thread.sleep(120L);
+                AccessibilityNodeInfo root = getRootInActiveWindow();
+                AccessibilityNodeInfo current = findChatGptComposer(root);
+                String actual = current == null ? "" : normalize(value(current.getText()));
+                safeRecycle(current);
+                safeRecycle(root);
+                if (actual.equals(normalize(text))) return true;
+            }
+            Thread.sleep(150L);
+        }
+        return false;
     }
 
     private String buildChatGptQuestion(String instructions, String incoming) {
@@ -295,50 +329,70 @@ public class MessageAccessibilityService extends AccessibilityService {
         return "com.openai.chatgpt".equals(root.getPackageName().toString());
     }
 
-    private AccessibilityNodeInfo findChatGptComposer(AccessibilityNodeInfo node) {
-        if (node == null) return null;
-        if (node.isVisibleToUser()) {
-            String cls = value(node.getClassName()).toLowerCase(Locale.ROOT);
-            String all = (value(node.getText()) + " " +
-                    value(node.getContentDescription()) + " " +
-                    value(node.getHintText())).toLowerCase(Locale.ROOT);
-            if (node.isEditable() || cls.contains("edittext")) return node;
-            if ((all.contains("message") || all.contains("ask") ||
-                    all.contains("prompt") || all.contains("chat")) &&
-                    (node.isFocusable() || node.isClickable())) {
-                for (int i = 0; i < node.getChildCount(); i++) {
-                    AccessibilityNodeInfo child = findChatGptComposer(node.getChild(i));
-                    if (child != null) return child;
-                }
-            }
+    private AccessibilityNodeInfo findChatGptComposer(AccessibilityNodeInfo root) {
+        if (root == null) return null;
+        List<AccessibilityNodeInfo> candidates = new ArrayList<>();
+        collectEditableCandidates(root, candidates);
+        AccessibilityNodeInfo best = null;
+        int bestScore = Integer.MIN_VALUE;
+        Rect br = new Rect();
+        for (AccessibilityNodeInfo n : candidates) {
+            if (!n.isVisibleToUser()) { safeRecycle(n); continue; }
+            n.getBoundsInScreen(br);
+            int score = br.bottom * 4 + br.right;
+            String hint = (value(n.getHintText()) + " " + value(n.getContentDescription())).toLowerCase(Locale.ROOT);
+            String id = value(n.getViewIdResourceName()).toLowerCase(Locale.ROOT);
+            if (hint.contains("message") || hint.contains("ask") || hint.contains("prompt") ||
+                    hint.contains("chat") || id.contains("composer") || id.contains("message")) score += 100000;
+            if (br.top < getResources().getDisplayMetrics().heightPixels / 3) score -= 100000;
+            if (score > bestScore) {
+                safeRecycle(best); best = n; bestScore = score;
+            } else safeRecycle(n);
         }
-        for (int i = 0; i < node.getChildCount(); i++) {
-            AccessibilityNodeInfo result = findChatGptComposer(node.getChild(i));
-            if (result != null) return result;
-        }
-        return null;
+        return best;
     }
 
-    private AccessibilityNodeInfo findChatGptSendButton(AccessibilityNodeInfo node) {
-        if (node == null) return null;
-        String all = (value(node.getText()) + " " +
-                value(node.getContentDescription()) + " " +
-                value(node.getViewIdResourceName())).toLowerCase(Locale.ROOT);
-        String cls = value(node.getClassName()).toLowerCase(Locale.ROOT);
-
-        boolean send = (all.contains("send") || all.contains("gửi") ||
-                all.contains("submit")) &&
-                !all.contains("stop") && !all.contains("cancel");
-        if (node.isVisibleToUser() && send &&
-                (node.isClickable() || cls.contains("button") || cls.contains("imagebutton"))) {
-            return node;
+    private void collectEditableCandidates(AccessibilityNodeInfo node, List<AccessibilityNodeInfo> out) {
+        if (node == null) return;
+        if (node.isVisibleToUser()) {
+            String cls = value(node.getClassName()).toLowerCase(Locale.ROOT);
+            if (node.isEditable() || cls.contains("edittext") || cls.contains("textinput")) {
+                out.add(AccessibilityNodeInfo.obtain(node));
+            }
         }
+        for (int i = 0; i < node.getChildCount(); i++) collectEditableCandidates(node.getChild(i), out);
+    }
 
-        for (int i = 0; i < node.getChildCount(); i++) {
-            AccessibilityNodeInfo result = findChatGptSendButton(node.getChild(i));
-            if (result != null) return result;
+    private AccessibilityNodeInfo findChatGptSendButton(AccessibilityNodeInfo root, AccessibilityNodeInfo composer) {
+        if (root == null) return null;
+        Rect cr = new Rect();
+        if (composer != null) composer.getBoundsInScreen(cr);
+        List<AccessibilityNodeInfo> nodes = new ArrayList<>();
+        collectClickableNodes(root, nodes);
+        AccessibilityNodeInfo best = null;
+        int bestScore = Integer.MIN_VALUE;
+        int screenW = getResources().getDisplayMetrics().widthPixels;
+        for (AccessibilityNodeInfo n : nodes) {
+            if (!n.isVisibleToUser()) { safeRecycle(n); continue; }
+            String all = (value(n.getText()) + " " + value(n.getContentDescription()) + " " +
+                    value(n.getViewIdResourceName())).toLowerCase(Locale.ROOT);
+            Rect r = new Rect(); n.getBoundsInScreen(r);
+            int score = 0;
+            if (all.contains("send") || all.contains("submit") || all.contains("gửi") || all.contains("send_message")) score += 10000;
+            if (all.contains("stop") || all.contains("cancel")) score -= 20000;
+            if (r.bottom >= cr.top - 80 && r.top <= cr.bottom + 80) score += 3000;
+            if (r.right > screenW * 0.65f) score += 2000;
+            score -= Math.abs(r.centerY() - cr.centerY());
+            if (score > bestScore) { safeRecycle(best); best=n; bestScore=score; }
+            else safeRecycle(n);
         }
-        return null;
+        return bestScore > 0 ? best : null;
+    }
+
+    private void collectClickableNodes(AccessibilityNodeInfo node, List<AccessibilityNodeInfo> out) {
+        if (node == null) return;
+        if (node.isVisibleToUser() && node.isClickable()) out.add(AccessibilityNodeInfo.obtain(node));
+        for (int i=0;i<node.getChildCount();i++) collectClickableNodes(node.getChild(i), out);
     }
 
     private void collectVisibleTexts(AccessibilityNodeInfo node, java.util.Set<String> out) {
@@ -354,63 +408,66 @@ public class MessageAccessibilityService extends AccessibilityService {
         }
     }
 
-    private String waitForChatGptAnswer(String question, java.util.Set<String> baseline,
-                                        long timeoutMs) throws InterruptedException {
+    private String waitForChatGptAnswer(String question, long timeoutMs) throws InterruptedException {
         long end = System.currentTimeMillis() + timeoutMs;
         String last = "";
         int stable = 0;
+        boolean sentMessageObserved = false;
 
         while (System.currentTimeMillis() < end) {
             AccessibilityNodeInfo root = getRootInActiveWindow();
             if (isChatGptWindow(root)) {
-                String candidate = extractChatGptAnswer(root, question, baseline);
-                if (!candidate.isEmpty()) {
-                    if (candidate.equals(last)) stable++;
-                    else {
-                        last = candidate;
-                        stable = 1;
-                    }
-                    // Require several identical accessibility snapshots so we don't
-                    // return a partial streaming answer.
-                    if (stable >= 3 && !looksLikeChatGptProgress(candidate)) {
-                        return candidate;
-                    }
+                AccessibilityNodeInfo composer = findChatGptComposer(root);
+                String composerText = composer == null ? "" : normalize(value(composer.getText()));
+                safeRecycle(composer);
+                if (composerText.isEmpty()) sentMessageObserved = true;
+
+                List<String> texts = new ArrayList<>();
+                collectAnswerTexts(root, texts);
+                for (String raw : texts) {
+                    String t = normalize(raw);
+                    if (t.isEmpty() || t.length() < 2 || t.equals(normalize(question))) continue;
+                    if (looksLikeChatGptUi(t) || looksLikeChatGptProgress(t)) continue;
+                    String cleaned = stripQuestion(t, question);
+                    if (cleaned.length() < 2) continue;
+                    if (cleaned.equals(last)) stable++;
+                    else if (sentMessageObserved) { last = cleaned; stable = 1; }
+                }
+                if (sentMessageObserved && stable >= 3 && !last.isEmpty()) {
+                    return last;
                 }
             }
-            Thread.sleep(400L);
+            safeRecycle(root);
+            Thread.sleep(350L);
         }
         return "";
     }
 
     private String extractChatGptAnswer(AccessibilityNodeInfo root, String question,
                                          java.util.Set<String> baseline) {
-        java.util.List<String> texts = new java.util.ArrayList<>();
+        List<String> texts = new ArrayList<>();
         collectAnswerTexts(root, texts);
-
         String best = "";
         for (String raw : texts) {
             String t = normalize(raw);
-            if (t.isEmpty() || t.length() < 2 || t.equals(normalize(question))) continue;
-            if (looksLikeChatGptUi(t) || looksLikeChatGptProgress(t)) continue;
-
+            if (t.isEmpty() || t.equals(normalize(question)) || looksLikeChatGptUi(t) || looksLikeChatGptProgress(t)) continue;
             String cleaned = stripQuestion(t, question);
             if (cleaned.length() > best.length()) best = cleaned;
         }
-
-        // If the answer is exposed as a single combined conversation node, strip the
-        // newly submitted question and keep the text after it.
         return best.trim();
     }
 
-    private void collectAnswerTexts(AccessibilityNodeInfo node, java.util.List<String> out) {
+    private void collectAnswerTexts(AccessibilityNodeInfo node, List<String> out) {
         if (node == null) return;
         if (node.isVisibleToUser() && !node.isEditable()) {
             String t = normalize(value(node.getText()));
             if (!t.isEmpty() && t.length() <= 12000) out.add(t);
         }
-        for (int i = 0; i < node.getChildCount(); i++) {
-            collectAnswerTexts(node.getChild(i), out);
-        }
+        for (int i = 0; i < node.getChildCount(); i++) collectAnswerTexts(node.getChild(i), out);
+    }
+
+    private void safeRecycle(AccessibilityNodeInfo node) {
+        if (node != null) try { node.recycle(); } catch (Exception ignored) {}
     }
 
     private String stripQuestion(String text, String question) {
