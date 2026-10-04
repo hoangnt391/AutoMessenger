@@ -47,6 +47,13 @@ public class AutoMessengerService extends Service {
     private boolean settingsOpen = false;
     private View chatPanel;
     private View closeTarget;
+    private static volatile String lastQuestion = "";
+    private static volatile String lastAnswer = "";
+
+    public static void setLastConversation(String question, String answer) {
+        lastQuestion = question == null ? "" : question;
+        lastAnswer = answer == null ? "" : answer;
+    }
 
     @Override public void onCreate() {
         super.onCreate();
@@ -408,6 +415,57 @@ public class AutoMessengerService extends Service {
         status.setPadding(0, 10, 0, 8);
         panel.addView(status);
 
+        TextView questionLabel = new TextView(this);
+        questionLabel.setText("Câu hỏi gần nhất");
+        questionLabel.setTextSize(13);
+        questionLabel.setTextColor(Color.DKGRAY);
+        questionLabel.setPadding(0, 8, 0, 4);
+        panel.addView(questionLabel);
+
+        TextView question = new TextView(this);
+        question.setText(lastQuestion.isEmpty() ? "Chưa nhận được câu hỏi." : lastQuestion);
+        question.setTextSize(14);
+        question.setTextColor(Color.BLACK);
+        question.setPadding(12, 10, 12, 10);
+        panel.addView(question);
+
+        android.widget.Button copyQuestion = new android.widget.Button(this);
+        copyQuestion.setText("Sao chép câu hỏi");
+        copyQuestion.setOnClickListener(v -> copyToClipboard("Câu hỏi", lastQuestion));
+        panel.addView(copyQuestion);
+
+        TextView answerLabel = new TextView(this);
+        answerLabel.setText("Câu trả lời AI");
+        answerLabel.setTextSize(13);
+        answerLabel.setTextColor(Color.DKGRAY);
+        answerLabel.setPadding(0, 8, 0, 4);
+        panel.addView(answerLabel);
+
+        TextView answer = new TextView(this);
+        answer.setText(lastAnswer.isEmpty() ? "Chưa có câu trả lời." : lastAnswer);
+        answer.setTextSize(14);
+        answer.setTextColor(Color.BLACK);
+        answer.setPadding(12, 10, 12, 10);
+        panel.addView(answer);
+
+        android.widget.Button copyAnswer = new android.widget.Button(this);
+        copyAnswer.setText("Sao chép câu trả lời");
+        copyAnswer.setOnClickListener(v -> copyToClipboard("Câu trả lời", lastAnswer));
+        panel.addView(copyAnswer);
+
+        android.widget.Button putAnswer = new android.widget.Button(this);
+        putAnswer.setText("Đưa câu trả lời vào ô chat (chưa gửi)");
+        putAnswer.setOnClickListener(v -> {
+            MessageAccessibilityService s = MessageAccessibilityService.isRunning()
+                    ? getAccessibilityServiceInstance() : null;
+            if (s != null && s.putTextInComposerOnly(lastAnswer)) {
+                Toast.makeText(this, "Đã đưa câu trả lời vào ô chat. Kiểm tra rồi bấm Gửi.", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "Không tìm thấy ô chat hiện tại.", Toast.LENGTH_SHORT).show();
+            }
+        });
+        panel.addView(putAnswer);
+
         TextView promptLabel = new TextView(this);
         promptLabel.setText("Yêu cầu trả lời");
         promptLabel.setTextSize(13);
@@ -491,6 +549,26 @@ public class AutoMessengerService extends Service {
 
         wm.addView(panel, lp);
         chatPanel = panel;
+    }
+
+
+    private MessageAccessibilityService getAccessibilityServiceInstance() {
+        try {
+            java.lang.reflect.Field f = MessageAccessibilityService.class.getDeclaredField("instance");
+            f.setAccessible(true);
+            return (MessageAccessibilityService) f.get(null);
+        } catch (Exception ignored) { return null; }
+    }
+
+    private void copyToClipboard(String label, String text) {
+        if (text == null || text.trim().isEmpty()) {
+            Toast.makeText(this, "Chưa có nội dung để sao chép.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        android.content.ClipboardManager cm =
+                (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        cm.setPrimaryClip(android.content.ClipData.newPlainText(label, text));
+        Toast.makeText(this, "Đã sao chép " + label.toLowerCase(Locale.ROOT) + " ✓", Toast.LENGTH_SHORT).show();
     }
 
     private void closeChatPanel() {
