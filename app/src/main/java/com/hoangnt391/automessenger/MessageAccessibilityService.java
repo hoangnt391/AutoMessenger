@@ -21,10 +21,37 @@ public class MessageAccessibilityService extends AccessibilityService {
     private String lastIncoming = "";
     private String lastSent = "";
     private long lastReplyAt = 0L;
+    private static final String DEBUG_CHANNEL = "automessenger_debug";
+    private int debugNotificationId = 4102;
+
+    private void ensureDebugChannel() {
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            android.app.NotificationManager nm = getSystemService(android.app.NotificationManager.class);
+            if (nm != null && nm.getNotificationChannel(DEBUG_CHANNEL) == null) {
+                nm.createNotificationChannel(new android.app.NotificationChannel(DEBUG_CHANNEL, "AutoMessenger - Nhật ký", android.app.NotificationManager.IMPORTANCE_DEFAULT));
+            }
+        }
+    }
+
+    private void postDebug(String message) {
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+            try {
+                ensureDebugChannel();
+                android.app.Notification.Builder b = android.os.Build.VERSION.SDK_INT >= 26
+                        ? new android.app.Notification.Builder(this, DEBUG_CHANNEL)
+                        : new android.app.Notification.Builder(this);
+                b.setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle("AutoMessenger • Trạng thái").setContentText(message).setAutoCancel(true);
+                android.app.NotificationManager nm = (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                if (nm != null) nm.notify(debugNotificationId++, b.build());
+            } catch (Exception ignored) {}
+        });
+    }
 
     @Override public void onServiceConnected() {
         super.onServiceConnected();
         instance = this;
+        ensureDebugChannel();
+        postDebug("Trợ năng đã kết nối. Đang chờ tin nhắn mới.");
     }
 
     public static boolean isRunning() {
@@ -68,6 +95,7 @@ public class MessageAccessibilityService extends AccessibilityService {
         if (System.currentTimeMillis() - lastReplyAt < 1500L) return;
         if (incoming.length() > 4000) incoming = incoming.substring(0, 4000);
         lastIncoming = incoming;
+        postDebug("Đã phát hiện tin nhắn mới. Đang xử lý...");
         generateAndSend(incoming);
     }
 
@@ -101,6 +129,7 @@ public class MessageAccessibilityService extends AccessibilityService {
 
     private void generateAndSend(final String incoming) {
         replying = true;
+        postDebug("Đang gửi nội dung sang ChatGPT...");
         worker.execute(() -> {
             try {
                 android.content.SharedPreferences p =
@@ -115,17 +144,20 @@ public class MessageAccessibilityService extends AccessibilityService {
                         "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. Không markdown.");
 
                 String reply = AiClient.reply(key, model, prompt, incoming);
+                postDebug("ChatGPT đã trả lời. Đang chuẩn bị gửi...");
                 if (reply != null && !reply.trim().isEmpty()) {
                     AutoMessengerService.setLastConversation(incoming, reply.trim());
                     new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
                         if (sendMessage(reply.trim())) {
+                            postDebug("Đã gửi câu trả lời thành công.");
                             lastSent = reply.trim();
                             lastReplyAt = System.currentTimeMillis();
                         }
                     });
                 }
             } catch (Exception e) {
-                final String message = e.getMessage() == null ? "Lỗi Gemini không xác định" : e.getMessage();
+                final String message = e.getMessage() == null ? "Lỗi ChatGPT không xác định" : e.getMessage();
+                postDebug("LỖI: " + shortError(message));
                 new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
                         android.widget.Toast.makeText(this,
                                 "Không trả lời được: " + shortError(message),
@@ -188,6 +220,7 @@ public class MessageAccessibilityService extends AccessibilityService {
                 ? "" : before.getPackageName().toString();
         safeRecycle(before);
 
+        postDebug("Đang mở ChatGPT...");
         openInstalledChatGpt();
         AccessibilityNodeInfo chatRoot = waitForChatGptRoot(20000L);
         safeRecycle(chatRoot);
@@ -198,6 +231,7 @@ public class MessageAccessibilityService extends AccessibilityService {
         AccessibilityNodeInfo composer = waitForChatGptComposer(12000L);
         if (composer == null) throw new Exception("Không tìm thấy ô nhập ChatGPT.");
 
+        postDebug("Đã mở ChatGPT. Đang nhập câu hỏi...");
         if (!setNodeTextAndVerify(composer, question, 3000L)) {
             safeRecycle(composer);
             throw new Exception("ChatGPT không nhận được câu hỏi. Ô nhập chưa nhận được nội dung.");
@@ -213,6 +247,7 @@ public class MessageAccessibilityService extends AccessibilityService {
         }
         safeRecycle(send);
 
+        postDebug("Đã gửi câu hỏi. Đang chờ câu trả lời...");
         String answer = waitForChatGptAnswer(question, 90000L);
         safeRecycle(composer);
         if (answer == null || answer.trim().isEmpty()) {
@@ -224,6 +259,7 @@ public class MessageAccessibilityService extends AccessibilityService {
             new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
                     () -> returnToPackage(pkg), 200L);
         }
+        postDebug("Đã đọc được câu trả lời từ ChatGPT.");
         return answer.trim();
     }
 
