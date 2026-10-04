@@ -179,6 +179,288 @@ public class MessageAccessibilityService extends AccessibilityService {
         return x.isEmpty() ? "kiểm tra API key, model và quyền Trợ năng." : x;
     }
 
+
+    /**
+     * Open the official ChatGPT Android app on the temporary-chat URL, enter the
+     * request, press Send, read the assistant answer from the accessibility tree,
+     * then return to the chat app that was active before ChatGPT was opened.
+     *
+     * No screenshots are captured for this path and no image/bitmap is stored.
+     */
+    public String requestChatGptReply(String instructions, String incoming) throws Exception {
+        final String question = buildChatGptQuestion(instructions, incoming);
+        if (question.trim().isEmpty()) throw new IllegalArgumentException("Câu hỏi trống.");
+
+        final AccessibilityNodeInfo before = getRootInActiveWindow();
+        final String returnPackage = before == null || before.getPackageName() == null
+                ? "" : before.getPackageName().toString();
+
+        final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+        final java.util.concurrent.CountDownLatch opened = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.atomic.AtomicReference<String> openError =
+                new java.util.concurrent.atomic.AtomicReference<>("");
+
+        main.post(() -> {
+            try {
+                android.content.Intent intent = new android.content.Intent(
+                        android.content.Intent.ACTION_VIEW,
+                        android.net.Uri.parse("https://chatgpt.com/?temporary-chat=true"));
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                        | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
+
+                boolean hasChatGpt = false;
+                try {
+                    getPackageManager().getPackageInfo("com.openai.chatgpt", 0);
+                    hasChatGpt = true;
+                } catch (Exception ignored) {}
+
+                if (hasChatGpt) intent.setPackage("com.openai.chatgpt");
+                startActivity(intent);
+            } catch (Exception e) {
+                openError.set(e.getMessage() == null ? "Không mở được ChatGPT." : e.getMessage());
+            } finally {
+                opened.countDown();
+            }
+        });
+        opened.await(5, java.util.concurrent.TimeUnit.SECONDS);
+        if (!openError.get().isEmpty()) throw new Exception(openError.get());
+
+        AccessibilityNodeInfo chatRoot = waitForChatGptRoot(15000L);
+        if (chatRoot == null) {
+            throw new Exception("Không đọc được giao diện ChatGPT. Hãy mở ChatGPT và cấp Trợ năng cho AutoMessenger.");
+        }
+
+        final java.util.Set<String> baseline = new java.util.HashSet<>();
+        collectVisibleTexts(chatRoot, baseline);
+
+        AccessibilityNodeInfo composer = findChatGptComposer(chatRoot);
+        if (composer == null) throw new Exception("Không tìm thấy ô nhập ChatGPT.");
+
+        composer.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+        Bundle args = new Bundle();
+        args.putCharSequence(
+                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, question);
+        boolean set = composer.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+
+        if (!set) {
+            // A clipboard is deliberately NOT used here: it would expose the prompt
+            // to the system clipboard. Accessibility ACTION_SET_TEXT is the preferred path.
+            throw new Exception("ChatGPT không nhận được nội dung vào ô nhập.");
+        }
+
+        AccessibilityNodeInfo verify = findChatGptComposer(getRootInActiveWindow());
+        if (verify == null || !normalize(value(verify.getText())).equals(normalize(question))) {
+            throw new Exception("Không xác nhận được nội dung trong ô ChatGPT.");
+        }
+
+        AccessibilityNodeInfo send = findChatGptSendButton(getRootInActiveWindow());
+        if (send == null || !clickNodeOrParent(send)) {
+            throw new Exception("Không tìm thấy nút Gửi của ChatGPT.");
+        }
+
+        String answer = waitForChatGptAnswer(question, baseline, 60000L);
+        if (answer == null || answer.trim().isEmpty()) {
+            throw new Exception("ChatGPT chưa trả về câu trả lời.");
+        }
+
+        if (!returnPackage.isEmpty() && !returnPackage.equals("com.openai.chatgpt")) {
+            main.postDelayed(() -> returnToPackage(returnPackage), 150L);
+        }
+
+        // Clear short-lived local references before returning. Nothing is persisted.
+        questionCleanup(composer, chatRoot);
+        return answer.trim();
+    }
+
+    private String buildChatGptQuestion(String instructions, String incoming) {
+        String p = instructions == null ? "" : instructions.trim();
+        String q = incoming == null ? "" : incoming.trim();
+        if (p.isEmpty()) return q;
+        if (q.isEmpty()) return p;
+        return p + "\n\nTin nhắn/câu hỏi cần xử lý:\n" + q;
+    }
+
+    private AccessibilityNodeInfo waitForChatGptRoot(long timeoutMs) throws InterruptedException {
+        long end = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < end) {
+            AccessibilityNodeInfo root = getRootInActiveWindow();
+            if (isChatGptWindow(root)) return root;
+            Thread.sleep(250L);
+        }
+        return null;
+    }
+
+    private boolean isChatGptWindow(AccessibilityNodeInfo root) {
+        if (root == null || root.getPackageName() == null) return false;
+        return "com.openai.chatgpt".equals(root.getPackageName().toString());
+    }
+
+    private AccessibilityNodeInfo findChatGptComposer(AccessibilityNodeInfo node) {
+        if (node == null) return null;
+        if (node.isVisibleToUser()) {
+            String cls = value(node.getClassName()).toLowerCase(Locale.ROOT);
+            String all = (value(node.getText()) + " " +
+                    value(node.getContentDescription()) + " " +
+                    value(node.getHintText())).toLowerCase(Locale.ROOT);
+            if (node.isEditable() || cls.contains("edittext")) return node;
+            if ((all.contains("message") || all.contains("ask") ||
+                    all.contains("prompt") || all.contains("chat")) &&
+                    (node.isFocusable() || node.isClickable())) {
+                for (int i = 0; i < node.getChildCount(); i++) {
+                    AccessibilityNodeInfo child = findChatGptComposer(node.getChild(i));
+                    if (child != null) return child;
+                }
+            }
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo result = findChatGptComposer(node.getChild(i));
+            if (result != null) return result;
+        }
+        return null;
+    }
+
+    private AccessibilityNodeInfo findChatGptSendButton(AccessibilityNodeInfo node) {
+        if (node == null) return null;
+        String all = (value(node.getText()) + " " +
+                value(node.getContentDescription()) + " " +
+                value(node.getViewIdResourceName())).toLowerCase(Locale.ROOT);
+        String cls = value(node.getClassName()).toLowerCase(Locale.ROOT);
+
+        boolean send = (all.contains("send") || all.contains("gửi") ||
+                all.contains("submit")) &&
+                !all.contains("stop") && !all.contains("cancel");
+        if (node.isVisibleToUser() && send &&
+                (node.isClickable() || cls.contains("button") || cls.contains("imagebutton"))) {
+            return node;
+        }
+
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo result = findChatGptSendButton(node.getChild(i));
+            if (result != null) return result;
+        }
+        return null;
+    }
+
+    private void collectVisibleTexts(AccessibilityNodeInfo node, java.util.Set<String> out) {
+        if (node == null) return;
+        if (node.isVisibleToUser()) {
+            String t = normalize(value(node.getText()));
+            if (!t.isEmpty() && t.length() <= 12000) out.add(t);
+            String d = normalize(value(node.getContentDescription()));
+            if (!d.isEmpty() && d.length() <= 500) out.add(d);
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            collectVisibleTexts(node.getChild(i), out);
+        }
+    }
+
+    private String waitForChatGptAnswer(String question, java.util.Set<String> baseline,
+                                        long timeoutMs) throws InterruptedException {
+        long end = System.currentTimeMillis() + timeoutMs;
+        String last = "";
+        int stable = 0;
+
+        while (System.currentTimeMillis() < end) {
+            AccessibilityNodeInfo root = getRootInActiveWindow();
+            if (isChatGptWindow(root)) {
+                String candidate = extractChatGptAnswer(root, question, baseline);
+                if (!candidate.isEmpty()) {
+                    if (candidate.equals(last)) stable++;
+                    else {
+                        last = candidate;
+                        stable = 1;
+                    }
+                    // Require several identical accessibility snapshots so we don't
+                    // return a partial streaming answer.
+                    if (stable >= 3 && !looksLikeChatGptProgress(candidate)) {
+                        return candidate;
+                    }
+                }
+            }
+            Thread.sleep(400L);
+        }
+        return "";
+    }
+
+    private String extractChatGptAnswer(AccessibilityNodeInfo root, String question,
+                                         java.util.Set<String> baseline) {
+        java.util.List<String> texts = new java.util.ArrayList<>();
+        collectAnswerTexts(root, texts);
+
+        String best = "";
+        for (String raw : texts) {
+            String t = normalize(raw);
+            if (t.isEmpty() || t.length() < 2 || t.equals(normalize(question))) continue;
+            if (looksLikeChatGptUi(t) || looksLikeChatGptProgress(t)) continue;
+
+            String cleaned = stripQuestion(t, question);
+            if (cleaned.length() > best.length()) best = cleaned;
+        }
+
+        // If the answer is exposed as a single combined conversation node, strip the
+        // newly submitted question and keep the text after it.
+        return best.trim();
+    }
+
+    private void collectAnswerTexts(AccessibilityNodeInfo node, java.util.List<String> out) {
+        if (node == null) return;
+        if (node.isVisibleToUser() && !node.isEditable()) {
+            String t = normalize(value(node.getText()));
+            if (!t.isEmpty() && t.length() <= 12000) out.add(t);
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            collectAnswerTexts(node.getChild(i), out);
+        }
+    }
+
+    private String stripQuestion(String text, String question) {
+        String t = text == null ? "" : text.trim();
+        String q = question == null ? "" : question.trim();
+        if (q.isEmpty()) return t;
+        int idx = t.lastIndexOf(q);
+        if (idx >= 0 && idx + q.length() < t.length()) {
+            String after = t.substring(idx + q.length()).trim();
+            if (!after.isEmpty()) return after;
+        }
+        return t;
+    }
+
+    private boolean looksLikeChatGptProgress(String text) {
+        String x = text.toLowerCase(Locale.ROOT);
+        return x.equals("thinking") || x.equals("generating") ||
+                x.contains("stop generating") || x.contains("đang suy nghĩ") ||
+                x.contains("đang tạo") || x.equals("cancel");
+    }
+
+    private boolean looksLikeChatGptUi(String text) {
+        String x = text.toLowerCase(Locale.ROOT).trim();
+        return x.equals("chatgpt") || x.equals("send") || x.equals("gửi") ||
+                x.equals("new chat") || x.equals("temporary chat") ||
+                x.equals("copy") || x.equals("sao chép") ||
+                x.equals("regenerate") || x.equals("read aloud") ||
+                x.equals("like") || x.equals("dislike");
+    }
+
+    private void returnToPackage(String packageName) {
+        try {
+            android.content.Intent back = getPackageManager().getLaunchIntentForPackage(packageName);
+            if (back != null) {
+                back.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK |
+                        android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                startActivity(back);
+            } else {
+                performGlobalAction(GLOBAL_ACTION_BACK);
+            }
+        } catch (Exception ignored) {
+            performGlobalAction(GLOBAL_ACTION_BACK);
+        }
+    }
+
+    private void questionCleanup(AccessibilityNodeInfo composer, AccessibilityNodeInfo root) {
+        try { if (composer != null) composer.recycle(); } catch (Exception ignored) {}
+        try { if (root != null) root.recycle(); } catch (Exception ignored) {}
+    }
+
     private boolean sendMessage(String text) {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return false;
