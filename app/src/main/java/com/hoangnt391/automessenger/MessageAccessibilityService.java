@@ -102,11 +102,15 @@ public class MessageAccessibilityService extends AccessibilityService {
                 String key = p.getString("api_key", "");
                 String model = p.getString("model", "gemini-3.5-flash-lite");
                 String prompt = p.getString("prompt",
-                        "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. " +
-                        "Không nhắc rằng bạn là AI. Không dùng markdown.");
+                        "Bạn đang tạo NỘI DUNG TIN NHẮN để ứng dụng tự động gửi cho người khác. " +
+                        "Chỉ trả về đúng nội dung tin nhắn cần gửi. " +
+                        "Không giải thích, không nói bạn là AI, không nói bạn không thể thao tác, " +
+                        "không nhắc đến giao diện, ứng dụng, API hay công cụ. " +
+                        "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. Không markdown.");
 
                 String reply = AiClient.reply(key, model, prompt, incoming);
                 if (reply != null && !reply.trim().isEmpty()) {
+                    AutoMessengerService.setLastConversation(incoming, reply.trim());
                     new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
                         if (sendMessage(reply.trim())) {
                             lastSent = reply.trim();
