@@ -167,7 +167,6 @@ public class MainActivity extends Activity {
         boolean accessibility = MessageAccessibilityService.isRunning();
         status.setText("\nTrạng thái: " +
                 (accessibility ? "Trợ năng OK" : "Chưa bật Trợ năng") +
- +
                 " | ChatGPT: ứng dụng" +
                 "\nMở Messenger, vào một cuộc hội thoại rồi bật tự động trả lời.");
     }
