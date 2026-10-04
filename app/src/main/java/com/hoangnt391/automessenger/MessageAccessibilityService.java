@@ -181,21 +181,17 @@ public class MessageAccessibilityService extends AccessibilityService {
             return false;
         }
 
-        // Fetch a fresh tree because chat apps often rebuild the send button
-        // immediately after text changes.
-        AccessibilityNodeInfo freshRoot = getRootInActiveWindow();
-        if (freshRoot == null) return false;
-
-        AccessibilityNodeInfo send = findSendButton(freshRoot);
-        if (send == null) {
-            android.widget.Toast.makeText(this, "Không tìm thấy nút Gửi của ứng dụng chat.", android.widget.Toast.LENGTH_SHORT).show();
-            return false;
+        // Do not press Send. Copy the generated reply and leave it in the
+        // composer so the user can review/edit it and send manually.
+        android.content.ClipboardManager clipboard =
+                (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        if (clipboard != null) {
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("AutoMessenger reply", text));
         }
-        boolean clicked = clickNodeOrParent(send);
-        if (!clicked) {
-            android.widget.Toast.makeText(this, "Không bấm được nút Gửi.", android.widget.Toast.LENGTH_SHORT).show();
-        }
-        return clicked;
+        android.widget.Toast.makeText(this,
+                "Đã điền câu trả lời vào ô chat. Kiểm tra rồi bấm Gửi.",
+                android.widget.Toast.LENGTH_LONG).show();
+        return true;
     }
 
     private AccessibilityNodeInfo findEditable(AccessibilityNodeInfo node) {
