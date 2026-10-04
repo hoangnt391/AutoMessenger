@@ -268,6 +268,7 @@ public class MessageAccessibilityService extends AccessibilityService {
                     all.contains("type a message") ||
                     all.contains("write a message") ||
                     all.contains("nhập tin nhắn") ||
+                    all.contains("tin nhắn") || all.contains("nhắn tin") ||
                     all.equals("aa") ||
                     all.endsWith(" aa")) {
                 if (cls.contains("edittext") || node.isEditable()) return node;
@@ -418,7 +419,7 @@ public class MessageAccessibilityService extends AccessibilityService {
                 x.equals("message") || x.equals("messenger") ||
                 x.equals("aa") || x.equals("more") || x.equals("thêm") ||
                 x.contains("type a message") || x.contains("write a message") ||
-                x.contains("nhập tin nhắn");
+                x.contains("nhập tin nhắn") || x.contains("tin nhắn") || x.contains("nhắn tin");
     }
 
     private void replaceLastInput(AccessibilityNodeInfo input) {
