@@ -191,8 +191,18 @@ public class MessageAccessibilityService extends AccessibilityService {
             return false;
         }
         boolean clicked = clickNodeOrParent(send);
+
+        // Fallback for chat apps whose send icon is exposed to Accessibility
+        // but does not dispatch ACTION_CLICK. Try the composer IME send action.
         if (!clicked) {
-            android.widget.Toast.makeText(this, "Không bấm được nút Gửi.", android.widget.Toast.LENGTH_SHORT).show();
+            AccessibilityNodeInfo currentInput = findEditable(getRootInActiveWindow());
+            if (currentInput != null) {
+                currentInput.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+                clicked = currentInput.performAction(AccessibilityNodeInfo.ACTION_IME_ENTER);
+            }
+        }
+        if (!clicked) {
+            android.widget.Toast.makeText(this, "Đã dán nhưng không gửi được: ứng dụng không nhận thao tác Gửi.", android.widget.Toast.LENGTH_LONG).show();
         }
         return clicked;
     }
@@ -266,7 +276,7 @@ public class MessageAccessibilityService extends AccessibilityService {
         AccessibilityNodeInfo current = node;
         for (int i = 0; i < 6 && current != null; i++) {
             if (current.isVisibleToUser() && current.isClickable()) {
-                return current.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                if (current.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true;
             }
             current = current.getParent();
         }
