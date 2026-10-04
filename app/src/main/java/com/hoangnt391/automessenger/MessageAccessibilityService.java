@@ -410,4 +410,18 @@ public class MessageAccessibilityService extends AccessibilityService {
     public boolean putTextInMessenger(String text) {
         return sendMessage(text);
     }
+
+    /** Put text into the current chat composer without pressing Send. */
+    public boolean putTextInComposerOnly(String text) {
+        if (text == null || text.trim().isEmpty()) return false;
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        AccessibilityNodeInfo input = findEditable(root);
+        if (input == null) return false;
+        input.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+        Bundle args = new Bundle();
+        args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text);
+        boolean ok = input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+        if (ok) replaceLastInput(input);
+        return ok;
+    }
 }
