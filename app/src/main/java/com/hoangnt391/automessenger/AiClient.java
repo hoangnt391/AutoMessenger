@@ -52,7 +52,7 @@ public final class AiClient {
         c.setConnectTimeout(5000);
         c.setReadTimeout(10000);
         c.setDoOutput(true);
-        c.setRequestProperty("x-goog-api-key", apiKey.trim());
+        c.setRequestProperty("x-goog-api-key", apiKey.replaceAll("\\s+", ""));
         c.setRequestProperty("Content-Type", "application/json");
         c.setRequestProperty("Accept", "application/json");
 
