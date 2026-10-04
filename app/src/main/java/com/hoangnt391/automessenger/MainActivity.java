@@ -182,6 +182,9 @@ public class MainActivity extends Activity {
                 .putBoolean("enabled", want)
                 .putBoolean("auto", autoWant)
                 .putString("prompt", request)
+                .remove("api_key")
+                .remove("model")
+                .remove("key_valid")
                 .putBoolean("bubble_hidden", false)
                 .apply();
 
