@@ -332,6 +332,17 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "Nhập câu hỏi trước", Toast.LENGTH_SHORT).show();
             return;
         }
+        if (!MessageAccessibilityService.isRunning()) {
+            directResult.setText("⚠️ Chưa kết nối Trợ năng. Chat trực tiếp cũng dùng Trợ năng để điều khiển ứng dụng ChatGPT.");
+            new android.app.AlertDialog.Builder(this)
+                    .setTitle("Cần bật Trợ năng")
+                    .setMessage("Vào Cài đặt > Trợ năng > AutoMessenger và bật dịch vụ. Sau đó quay lại đây và gửi câu hỏi.")
+                    .setNegativeButton("Để sau", null)
+                    .setPositiveButton("Mở cài đặt", (d, w) ->
+                            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)))
+                    .show();
+            return;
+        }
         directResult.setText("🤖 Đang gửi câu hỏi sang ChatGPT...");
         executor.execute(() -> {
             try {
