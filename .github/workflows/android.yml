@@ -5,6 +5,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -30,11 +33,19 @@ jobs:
           sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
       - name: Build APK
         run: gradle assembleDebug
+      - name: Publish APK to latest Release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: AutoMessenger - bản mới nhất
+          body: APK mới nhất được tự động cập nhật sau mỗi lần build thành công trên nhánh main.
+          files: app/build/outputs/apk/debug/app-debug.apk
+          make_latest: true
+          fail_on_unmatched_files: true
       - uses: actions/upload-artifact@v5
         with:
           name: AutoMessenger-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 2
-
-# rebuild 1790801188603
