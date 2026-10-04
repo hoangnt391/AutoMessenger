@@ -5,13 +5,12 @@
 ## 📥 Tải ứng dụng
 
 ### APK mới nhất
-Sau khi GitHub Actions build thành công, APK sẽ được đăng trong **Releases** của repository.
 
-👉 **[Tải AutoMessenger APK](https://github.com/hoangnt391/AutoMessenger/releases/latest)**
+👉 **[⬇️ TẢI TRỰC TIẾP AUTOmessenger APK](https://github.com/hoangnt391/AutoMessenger/releases/download/latest/app-debug.apk)**
 
-Nếu chưa có bản Release, bạn có thể vào **Actions → Android Build → Artifacts** để tải bản APK của build mới nhất.
+Link tải trực tiếp luôn trỏ đến APK mới nhất được phát hành. Mỗi lần build thành công trên nhánh `main`, GitHub Actions sẽ cập nhật file APK tại Release `latest`. Link Release ổn định, không phải artifact có thời hạn 2 ngày.
 
-👉 **[Mở GitHub Actions](https://github.com/hoangnt391/AutoMessenger/actions/workflows/android.yml)**
+[Xem trang Release](https://github.com/hoangnt391/AutoMessenger/releases/tag/latest) · [Xem GitHub Actions](https://github.com/hoangnt391/AutoMessenger/actions/workflows/android.yml)
 
 ## ✨ Tính năng
 
@@ -24,6 +23,6 @@ Nếu chưa có bản Release, bạn có thể vào **Actions → Android Build 
 
 ## 🛠️ Build
 
-Dự án sử dụng GitHub Actions để build Android APK.
+Dự án sử dụng GitHub Actions để build Android APK và cập nhật bản tải mới nhất lên GitHub Releases.
 
 **Repository:** https://github.com/hoangnt391/AutoMessenger
