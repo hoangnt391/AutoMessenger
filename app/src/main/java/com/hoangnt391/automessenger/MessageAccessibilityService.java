@@ -31,6 +31,10 @@ public class MessageAccessibilityService extends AccessibilityService {
         return instance != null;
     }
 
+    public static MessageAccessibilityService getInstance() {
+        return instance;
+    }
+
     public static boolean isChatAppActive() {
         MessageAccessibilityService s = instance;
         if (s == null) return false;
