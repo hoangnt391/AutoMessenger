@@ -13,6 +13,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class MessageAccessibilityService extends AccessibilityService {
@@ -21,6 +24,12 @@ public class MessageAccessibilityService extends AccessibilityService {
     private static MessageAccessibilityService instance;
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private final ScheduledExecutorService debounceScheduler = Executors.newSingleThreadScheduledExecutor();
+    private final Object pendingLock = new Object();
+    private final List<String> pendingMessages = new ArrayList<>();
+    private ScheduledFuture<?> pendingFlush;
+    private String lastQueuedText = "";
+    private long lastQueuedAt = 0L;
     private AccessibilityNodeInfo lastInput;
     private volatile boolean replying = false;
     private volatile boolean poeBusy = false;
@@ -96,12 +105,79 @@ public class MessageAccessibilityService extends AccessibilityService {
     private void handleDetectedIncoming(String incoming) {
         if (incoming == null || incoming.isEmpty()) return;
         if (!getSharedPreferences("AutoMessenger", 0).getBoolean("auto", false)) return;
-        if (replying || poeBusy) return;
-        if (incoming.equals(lastSent) || incoming.equals(lastIncoming)) return;
-        if (System.currentTimeMillis() - lastReplyAt < 1500L) return;
+        if (incoming.equals(lastSent)) return;
         if (incoming.length() > 4000) incoming = incoming.substring(0, 4000);
-        lastIncoming = incoming;
-        generateAndSend(incoming);
+        queueIncomingMessage(incoming);
+    }
+
+    /**
+     * Smart debounce:
+     * - One isolated message: process after 5 seconds.
+     * - If another message arrives during that 5-second window, switch to a
+     *   10-second quiet period and keep extending it while messages continue.
+     * - All messages in the burst are sent to AI as one request.
+     */
+    private void queueIncomingMessage(String incoming) {
+        final String text = incoming == null ? "" : incoming.trim();
+        if (text.isEmpty()) return;
+
+        synchronized (pendingLock) {
+            long now = System.currentTimeMillis();
+
+            // Accessibility can emit the same message several times. Treat
+            // identical text within 1.2s as the same event.
+            if (text.equals(lastQueuedText) && now - lastQueuedAt < 1200L) return;
+            lastQueuedText = text;
+            lastQueuedAt = now;
+
+            boolean wasEmpty = pendingMessages.isEmpty();
+            pendingMessages.add(text);
+
+            if (pendingFlush != null) pendingFlush.cancel(false);
+
+            long delay = wasEmpty ? 5L : 10L;
+            postDebug(wasEmpty
+                    ? "Có tin mới. Chờ 5s để xác định có nhắn tiếp..."
+                    : "Đang gom tin nhắn. Sẽ xử lý sau 10s im lặng...");
+
+            pendingFlush = debounceScheduler.schedule(
+                    this::flushPendingMessages, delay, TimeUnit.SECONDS);
+        }
+    }
+
+    private void flushPendingMessages() {
+        final String batch;
+        synchronized (pendingLock) {
+            if (pendingMessages.isEmpty()) {
+                pendingFlush = null;
+                return;
+            }
+            batch = joinPendingMessages(pendingMessages);
+            pendingMessages.clear();
+            pendingFlush = null;
+        }
+
+        if (!getSharedPreferences("AutoMessenger", 0).getBoolean("auto", false)) return;
+
+        lastIncoming = batch;
+        postDebug("Đã gom " + countMessages(batch) + " tin. Đang xử lý 1 lần...");
+        generateAndSend(batch);
+    }
+
+    private String joinPendingMessages(List<String> messages) {
+        StringBuilder b = new StringBuilder();
+        for (String message : messages) {
+            if (message == null || message.trim().isEmpty()) continue;
+            if (b.length() > 0) b.append("\n");
+            b.append(message.trim());
+        }
+        String result = b.toString();
+        return result.length() > 8000 ? result.substring(result.length() - 8000) : result;
+    }
+
+    private int countMessages(String batch) {
+        if (batch == null || batch.isEmpty()) return 0;
+        return batch.split("\\n").length;
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
@@ -125,22 +201,15 @@ public class MessageAccessibilityService extends AccessibilityService {
             safeRecycle(root);
             return;
         }
-        if (replying || poeBusy) {
-            safeRecycle(root);
-            return;
-        }
-
         String incoming = extractLatestMessage(root, event);
         safeRecycle(root);
         if (incoming == null || incoming.trim().isEmpty()) return;
         incoming = incoming.trim();
 
-        if (incoming.equals(lastSent) || incoming.equals(lastIncoming)) return;
-        if (System.currentTimeMillis() - lastReplyAt < 1500L) return;
+        if (incoming.equals(lastSent)) return;
         if (incoming.length() > 4000) incoming = incoming.substring(0, 4000);
 
-        lastIncoming = incoming;
-        generateAndSend(incoming);
+        queueIncomingMessage(incoming);
     }
 
     private void generateAndSend(final String incoming) {
@@ -664,6 +733,7 @@ public class MessageAccessibilityService extends AccessibilityService {
     @Override public void onDestroy() {
         instance = null;
         worker.shutdownNow();
+        debounceScheduler.shutdownNow();
         safeRecycle(lastInput);
         lastInput = null;
         super.onDestroy();
