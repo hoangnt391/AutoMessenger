@@ -406,25 +406,17 @@ public class MessageAccessibilityService extends AccessibilityService {
 
     public void openAshnaLogin() {
         new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
-            ensureAshnaHiddenWebView();
-            if (ashnaHiddenWebView == null || ashnaWebWindowManager == null) {
-                reportError("Không tạo được màn hình đăng nhập Ashna Web.");
-                return;
+            try {
+                // Login is a normal Activity, not an accessibility overlay.
+                // Therefore other apps can cover it and Home/Recents work normally.
+                android.content.Intent intent = new android.content.Intent(this, AshnaLoginActivity.class);
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                        | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                startActivity(intent);
+                postDebug("Ashna Web: mở màn đăng nhập dạng ứng dụng bình thường.");
+            } catch (Throwable e) {
+                reportError("Không mở được màn đăng nhập Ashna: " + shortError(e.getMessage()));
             }
-            ashnaLoginReadyChecks = 0;
-            ashnaHiddenWebView.setAlpha(1f);
-            ashnaHiddenWebView.setVisibility(android.view.View.VISIBLE);
-            ashnaHiddenWebView.setFocusable(true);
-            ashnaHiddenWebView.setFocusableInTouchMode(true);
-            ashnaHiddenWebView.requestFocus();
-            ashnaWebWindowParams.flags =
-                    android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
-            try { ashnaWebWindowManager.updateViewLayout(ashnaHiddenWebView, ashnaWebWindowParams); }
-            catch (Exception ignored) {}
-            showAshnaLoginCloseButton();
-            ashnaHiddenWebView.loadUrl("https://app.ashna.ai/chat?agent=gpt-6-sol");
-            postDebug("Ashna Web: đăng nhập đang mở. Có nút Đóng và WebView có thể cuộn/chạm bình thường.");
-            monitorAshnaLogin(0);
         });
     }
 
