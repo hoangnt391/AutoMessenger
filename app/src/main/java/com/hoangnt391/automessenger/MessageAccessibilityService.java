@@ -42,6 +42,8 @@ public class MessageAccessibilityService extends AccessibilityService {
     private ReplyCallback ashnaWebCallback;
     private int ashnaLoginReadyChecks = 0;
     private android.widget.Button ashnaLoginCloseButton;
+    private String ashnaLastCandidate = "";
+    private int ashnaStableCandidateChecks = 0;
 
     private void ensureDebugChannel() {
         if (android.os.Build.VERSION.SDK_INT >= 26) {
@@ -253,6 +255,8 @@ public class MessageAccessibilityService extends AccessibilityService {
             ashnaWebBusy = true;
             ashnaWebQuestion = question.trim();
             ashnaWebCallback = callback;
+            ashnaLastCandidate = "";
+            ashnaStableCandidateChecks = 0;
             ensureAshnaHiddenWebView();
             if (ashnaHiddenWebView == null) {
                 finishAshnaWeb(null, "Không tạo được WebView Ashna chạy ngầm.");
@@ -569,7 +573,7 @@ public class MessageAccessibilityService extends AccessibilityService {
                 + "var body=document.body?document.body.innerText:'';"
                 + "var lines=body.split(/\\n+/).map(function(x){return x.trim()}).filter(Boolean);"
                 + "var qi=-1;for(var i=lines.length-1;i>=0;i--){if(lines[i]===q){qi=i;break;}}"
-                + "var bad=/^(send|gửi|new chat|chat|settings|sign in|log in|copy|regenerate|stop|retry|model|agent|input|gpt\\s*6\\s*sol|ashnaai(?:\\s+can\\s+make\\s+mistakes)?|how can i help you today\\?)$/i;"
+                + "var bad=/^(send|gửi|new chat|chat|settings|sign in|log in|copy|regenerate|stop|retry|model|agent|input|thinking|thought|thinking\\.{0,3}|gpt\\s*6\\s*sol|ashnaai(?:\\s+can\\s+make\\s+mistakes)?|how can i help you today\\?)$/i;"
                 + "var cand=[];"
                 + "if(qi>=0){for(var j=qi+1;j<lines.length;j++){var t=lines[j];if(t===q||bad.test(t)||t.length<2||t.length>4000)continue;cand.push(t);}}"
                 + "if(!cand.length){var nodes=[].slice.call(document.querySelectorAll('[data-message-id],[data-message],[role=\"article\"],[data-testid*=\"message\"],[class*=\"message\"],[class*=\"Message\"]'));"
@@ -579,12 +583,38 @@ public class MessageAccessibilityService extends AccessibilityService {
         ashnaHiddenWebView.evaluateJavascript(js, result -> {
             String answer = extractHiddenAnswer(decodeJsString(result), question);
             if (answer != null && answer.trim().length() >= 2) {
-                finishAshnaWeb(answer.trim(), null);
-                return;
+                String stable = answer.trim();
+                if (isAshnaTransientText(stable)) {
+                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                            () -> pollHiddenAshnaAnswer(question, attempt + 1), 850L);
+                    return;
+                }
+                if (stable.equals(ashnaLastCandidate)) {
+                    ashnaStableCandidateChecks++;
+                } else {
+                    ashnaLastCandidate = stable;
+                    ashnaStableCandidateChecks = 1;
+                }
+                if (ashnaStableCandidateChecks >= 2) {
+                    finishAshnaWeb(stable, null);
+                    return;
+                }
             }
             new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
                     () -> pollHiddenAshnaAnswer(question, attempt + 1), 850L);
         });
+    }
+
+    private boolean isAshnaTransientText(String text) {
+        if (text == null) return true;
+        String x = text.trim().toLowerCase(Locale.ROOT)
+                .replaceAll("\\s+", " ");
+        return x.equals("thinking")
+                || x.equals("thought")
+                || x.equals("thinking...")
+                || x.equals("thinking…")
+                || x.equals("generating")
+                || x.equals("generating...");
     }
 
     private String extractHiddenAnswer(String json, String question) {
