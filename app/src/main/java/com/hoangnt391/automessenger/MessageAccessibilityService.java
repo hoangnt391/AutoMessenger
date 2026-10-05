@@ -3,33 +3,40 @@ package com.hoangnt391.automessenger;
 import android.accessibilityservice.AccessibilityService;
 import android.graphics.Rect;
 import android.os.Bundle;
-import android.text.TextUtils;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class MessageAccessibilityService extends AccessibilityService {
+    private static final String POE_PACKAGE = "com.poe.android";
+    private static final String DEBUG_CHANNEL = "automessenger_debug";
     private static MessageAccessibilityService instance;
-    private AccessibilityNodeInfo lastInput;
+
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private AccessibilityNodeInfo lastInput;
     private volatile boolean replying = false;
     private volatile boolean poeBusy = false;
+    private volatile boolean poeStarted = false;
     private String lastIncoming = "";
     private String lastSent = "";
     private long lastReplyAt = 0L;
-    private static final String DEBUG_CHANNEL = "automessenger_debug";
-    private int debugNotificationId = 4102;
 
     private void ensureDebugChannel() {
         if (android.os.Build.VERSION.SDK_INT >= 26) {
-            android.app.NotificationManager nm = getSystemService(android.app.NotificationManager.class);
+            android.app.NotificationManager nm =
+                    getSystemService(android.app.NotificationManager.class);
             if (nm != null && nm.getNotificationChannel(DEBUG_CHANNEL) == null) {
-                nm.createNotificationChannel(new android.app.NotificationChannel(DEBUG_CHANNEL, "AutoMessenger - Nhật ký", android.app.NotificationManager.IMPORTANCE_DEFAULT));
+                nm.createNotificationChannel(new android.app.NotificationChannel(
+                        DEBUG_CHANNEL, "AutoMessenger - Nhật ký",
+                        android.app.NotificationManager.IMPORTANCE_DEFAULT));
             }
         }
     }
@@ -38,12 +45,17 @@ public class MessageAccessibilityService extends AccessibilityService {
         new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
             try {
                 ensureDebugChannel();
-                android.app.Notification.Builder b = android.os.Build.VERSION.SDK_INT >= 26
-                        ? new android.app.Notification.Builder(this, DEBUG_CHANNEL)
-                        : new android.app.Notification.Builder(this);
-                b.setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle("AutoMessenger • Trạng thái").setContentText(message).setAutoCancel(true);
-                android.app.NotificationManager nm = (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-                if (nm != null) nm.notify(debugNotificationId++, b.build());
+                android.app.Notification.Builder b =
+                        android.os.Build.VERSION.SDK_INT >= 26
+                                ? new android.app.Notification.Builder(this, DEBUG_CHANNEL)
+                                : new android.app.Notification.Builder(this);
+                b.setSmallIcon(android.R.drawable.ic_dialog_info)
+                        .setContentTitle("AutoMessenger • Poe")
+                        .setContentText(message)
+                        .setAutoCancel(true);
+                android.app.NotificationManager nm =
+                        (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                if (nm != null) nm.notify(4102, b.build());
             } catch (Exception ignored) {}
         });
     }
@@ -52,52 +64,43 @@ public class MessageAccessibilityService extends AccessibilityService {
         super.onServiceConnected();
         instance = this;
         ensureDebugChannel();
-        postDebug("Trợ năng đã kết nối. Đang chờ tin nhắn mới.");
+        postDebug("Trợ năng đã kết nối. Chờ tin nhắn mới.");
     }
 
-    public static boolean isRunning() {
-        return instance != null;
-    }
+    public static boolean isRunning() { return instance != null; }
 
-    public static MessageAccessibilityService getInstance() {
-        return instance;
-    }
+    public static MessageAccessibilityService getInstance() { return instance; }
 
     public static boolean isChatAppActive() {
         MessageAccessibilityService s = instance;
         if (s == null) return false;
         AccessibilityNodeInfo root = s.getRootInActiveWindow();
         if (root == null || root.getPackageName() == null) return false;
-        String pkg = root.getPackageName().toString();
-        // Only inspect supported chat apps. This prevents the OCR/accessibility
-        // engine from treating unrelated apps as incoming conversations.
-        return pkg.equals("com.facebook.orca")
-                || pkg.equals("com.zing.zalo")
-                || pkg.equals("com.whatsapp")
-                || pkg.equals("org.telegram.messenger");
+        return isSupportedChatPackage(root.getPackageName().toString());
     }
 
-    /** Backward-compatible name for older callers. */
-    public static boolean isMessengerActive() {
-        return isChatAppActive();
+    public static boolean isMessengerActive() { return isChatAppActive(); }
+
+    private static boolean isSupportedChatPackage(String pkg) {
+        return "com.facebook.orca".equals(pkg)
+                || "com.zing.zalo".equals(pkg)
+                || "com.whatsapp".equals(pkg)
+                || "org.telegram.messenger".equals(pkg);
     }
 
     public static void handleScreenMessage(String text) {
         MessageAccessibilityService s = instance;
-        if (s == null || text == null) return;
-        s.handleDetectedIncoming(text.trim());
+        if (s != null && text != null) s.handleDetectedIncoming(text.trim());
     }
 
     private void handleDetectedIncoming(String incoming) {
         if (incoming == null || incoming.isEmpty()) return;
         if (!getSharedPreferences("AutoMessenger", 0).getBoolean("auto", false)) return;
-        if (replying) return;
-        if (incoming.equals(lastSent)) return;
-        if (incoming.equals(lastIncoming)) return;
+        if (replying || poeBusy) return;
+        if (incoming.equals(lastSent) || incoming.equals(lastIncoming)) return;
         if (System.currentTimeMillis() - lastReplyAt < 1500L) return;
         if (incoming.length() > 4000) incoming = incoming.substring(0, 4000);
         lastIncoming = incoming;
-        postDebug("Đã phát hiện tin nhắn mới. Đang xử lý...");
         generateAndSend(incoming);
     }
 
@@ -105,19 +108,30 @@ public class MessageAccessibilityService extends AccessibilityService {
         if (event == null) return;
 
         AccessibilityNodeInfo root = getRootInActiveWindow();
-        if (root == null) return;
+        if (root == null || root.getPackageName() == null) return;
 
-        // Always refresh the current Messenger composer. This is important because
-        // Messenger recreates the composer node when entering/leaving a chat.
-        AccessibilityNodeInfo input = findEditable(root);
-        if (input != null && input.isVisibleToUser()) {
-            replaceLastInput(input);
+        // Never inspect Settings, Poe, launcher, permission screens, etc.
+        // This is the main guard against the old "nhảy loạn tap" behaviour.
+        String pkg = root.getPackageName().toString();
+        if (!isSupportedChatPackage(pkg)) {
+            safeRecycle(root);
+            return;
         }
 
-        if (!getSharedPreferences("AutoMessenger", 0).getBoolean("auto", false)) return;
-        if (replying) return;
+        AccessibilityNodeInfo input = findEditable(root);
+        if (input != null && input.isVisibleToUser()) replaceLastInput(input);
+
+        if (!getSharedPreferences("AutoMessenger", 0).getBoolean("auto", false)) {
+            safeRecycle(root);
+            return;
+        }
+        if (replying || poeBusy) {
+            safeRecycle(root);
+            return;
+        }
 
         String incoming = extractLatestMessage(root, event);
+        safeRecycle(root);
         if (incoming == null || incoming.trim().isEmpty()) return;
         incoming = incoming.trim();
 
@@ -131,34 +145,30 @@ public class MessageAccessibilityService extends AccessibilityService {
 
     private void generateAndSend(final String incoming) {
         replying = true;
-        postDebug("Đang gửi nội dung sang Poe...");
+        postDebug("Đang xử lý bằng Poe...");
         worker.execute(() -> {
             try {
                 android.content.SharedPreferences p =
                         getSharedPreferences("AutoMessenger", 0);
-                String key = p.getString("api_key", "");
-                String model = "poe";
                 String prompt = p.getString("prompt",
                         "Bạn đang tạo NỘI DUNG TIN NHẮN để ứng dụng tự động gửi cho người khác. " +
-                        "Chỉ trả về đúng nội dung tin nhắn cần gửi. " +
-                        "Không giải thích, không nói bạn là AI, không nói bạn không thể thao tác, " +
-                        "không nhắc đến giao diện, ứng dụng, API hay công cụ. " +
+                        "Chỉ trả về đúng nội dung tin nhắn cần gửi. Không giải thích, không nói bạn là AI. " +
                         "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. Không markdown.");
 
-                String reply = AiClient.reply(key, model, prompt, incoming);
-                postDebug("Poe đã trả lời. Đang chuẩn bị gửi...");
+                String reply = AiClient.reply("", "poe", prompt, incoming);
                 if (reply != null && !reply.trim().isEmpty()) {
-                    AutoMessengerService.setLastConversation(incoming, reply.trim());
+                    final String answer = reply.trim();
+                    AutoMessengerService.setLastConversation(incoming, answer);
                     new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
-                        if (sendMessage(reply.trim())) {
-                            postDebug("Đã gửi câu trả lời thành công.");
-                            lastSent = reply.trim();
+                        if (sendMessage(answer)) {
+                            lastSent = answer;
                             lastReplyAt = System.currentTimeMillis();
+                            postDebug("Đã gửi câu trả lời.");
                         }
                     });
                 }
             } catch (Exception e) {
-                final String message = e.getMessage() == null ? "Lỗi Poe không xác định" : e.getMessage();
+                String message = e.getMessage() == null ? "Lỗi Poe không xác định" : e.getMessage();
                 postDebug("LỖI: " + shortError(message));
                 new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
                         android.widget.Toast.makeText(this,
@@ -171,246 +181,106 @@ public class MessageAccessibilityService extends AccessibilityService {
         });
     }
 
-    /** Sends exactly one request to Poe and reads the answer through Accessibility. */
+    /**
+     * Poe is opened programmatically only when needed. The same Poe activity is
+     * brought to the foreground with REORDER_TO_FRONT; no new Poe activity/session
+     * is spawned for every message.
+     */
     public String requestPoeReply(String instructions, String incoming) throws Exception {
-        if (poeBusy) throw new Exception("Poe đang xử lý yêu cầu trước. Vui lòng chờ.");
+        if (poeBusy) throw new Exception("Poe đang xử lý yêu cầu trước.");
         poeBusy = true;
         try {
             String question = buildPoeQuestion(instructions, incoming);
-            if (question.trim().isEmpty()) throw new IllegalArgumentException("Câu hỏi trống.");
-            AccessibilityNodeInfo before = getRootInActiveWindow();
-            String returnPackage = before == null || before.getPackageName() == null ? "" : before.getPackageName().toString();
-            safeRecycle(before);
-            postDebug("Đang mở Poe...");
-            openPoe();
-            AccessibilityNodeInfo root = waitForPoeRoot(20000L);
-            safeRecycle(root);
-            if (root == null) throw new Exception("Không mở được Poe. Hãy cài Poe và bật Trợ năng cho AutoMessenger.");
-            AccessibilityNodeInfo composer = waitForPoeComposer(12000L);
+            if (question.isEmpty()) throw new IllegalArgumentException("Câu hỏi trống.");
+
+            String returnPackage = currentPackage();
+            ensurePoeForeground();
+
+            AccessibilityNodeInfo composer = waitForPoeComposer(15000L);
             if (composer == null) throw new Exception("Không tìm thấy ô nhập Poe.");
-            if (!setNodeTextAndVerifyPoe(composer, question, 4000L)) {
-                safeRecycle(composer); throw new Exception("Poe không nhận được câu hỏi.");
-            }
-            AccessibilityNodeInfo fresh = getRootInActiveWindow();
-            AccessibilityNodeInfo send = findPoeSendButton(fresh, composer);
-            safeRecycle(fresh);
-            if (send == null || !clickNodeOrParent(send)) {
-                safeRecycle(send); safeRecycle(composer); throw new Exception("Không tìm thấy nút Gửi của Poe.");
-            }
-            safeRecycle(send);
-            postDebug("Đã gửi câu hỏi sang Poe. Đang chờ...");
-            String answer = waitForPoeAnswer(question, 90000L);
-            safeRecycle(composer);
-            if (answer == null || answer.trim().isEmpty()) throw new Exception("Poe chưa trả về câu trả lời.");
-            if (!returnPackage.isEmpty() && !returnPackage.equals("com.poe.android")) {
-                final String pkg = returnPackage;
-                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> returnToPackage(pkg), 250L);
-            }
-            postDebug("Đã đọc được câu trả lời từ Poe.");
-            return answer.trim();
-        } finally { poeBusy = false; }
-    }
 
-    private String buildPoeQuestion(String instructions, String incoming) {
-        String p=instructions==null?"":instructions.trim(), q=incoming==null?"":incoming.trim();
-        if(p.isEmpty()) return q; if(q.isEmpty()) return p;
-        return p+"\n\nTin nhắn/câu hỏi cần xử lý:\n"+q;
-    }
-
-    private void openPoe() throws Exception {
-        android.content.pm.PackageManager pm=getPackageManager();
-        try { pm.getPackageInfo("com.poe.android",0); }
-        catch(Exception e){ throw new Exception("Chưa cài ứng dụng Poe."); }
-        android.os.Handler main=new android.os.Handler(android.os.Looper.getMainLooper());
-        java.util.concurrent.CountDownLatch done=new java.util.concurrent.CountDownLatch(1);
-        java.util.concurrent.atomic.AtomicReference<Exception> error=new java.util.concurrent.atomic.AtomicReference<>();
-        main.post(() -> { try {
-            android.content.Intent launch=pm.getLaunchIntentForPackage("com.poe.android");
-            if(launch==null) throw new Exception("Không tìm thấy màn hình mở Poe.");
-            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-            startActivity(launch); done.countDown();
-        } catch(Exception e){ error.set(e); done.countDown(); }});
-        if(!done.await(5,java.util.concurrent.TimeUnit.SECONDS)) throw new Exception("Hết thời gian mở Poe.");
-        if(error.get()!=null) throw error.get();
-    }
-
-    private boolean isPoeWindow(AccessibilityNodeInfo root){
-        return root!=null && root.getPackageName()!=null && "com.poe.android".contentEquals(root.getPackageName());
-    }
-
-    private AccessibilityNodeInfo waitForPoeRoot(long timeout) throws InterruptedException {
-        long end=System.currentTimeMillis()+timeout;
-        while(System.currentTimeMillis()<end){
-            AccessibilityNodeInfo r=getRootInActiveWindow();
-            if(isPoeWindow(r)) return r;
-            safeRecycle(r); Thread.sleep(250L);
-        }
-        return null;
-    }
-
-    private AccessibilityNodeInfo findPoeComposer(AccessibilityNodeInfo root){
-        if(root==null) return null;
-        AccessibilityNodeInfo e=findEditable(root);
-        if(e!=null) return e;
-        return null;
-    }
-
-    private AccessibilityNodeInfo waitForPoeComposer(long timeout) throws InterruptedException {
-        long end=System.currentTimeMillis()+timeout;
-        while(System.currentTimeMillis()<end){
-            AccessibilityNodeInfo r=getRootInActiveWindow();
-            if(isPoeWindow(r)){
-                AccessibilityNodeInfo e=findPoeComposer(r);
-                if(e!=null){ safeRecycle(r); return e; }
-            }
-            safeRecycle(r); Thread.sleep(250L);
-        }
-        return null;
-    }
-
-    private boolean setNodeTextAndVerifyPoe(AccessibilityNodeInfo node,String text,long timeout) throws InterruptedException {
-        if(node==null) return false;
-        node.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
-        Bundle args=new Bundle();
-        args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,text);
-        long end=System.currentTimeMillis()+timeout;
-        while(System.currentTimeMillis()<end){
-            if(node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,args)){
-                Thread.sleep(150L);
-                String actual=normalize(value(node.getText()));
-                if(actual.equals(normalize(text))) return true;
-            }
-            Thread.sleep(200L);
-        }
-        return false;
-    }
-
-    private AccessibilityNodeInfo findPoeSendButton(AccessibilityNodeInfo root, AccessibilityNodeInfo composer){
-        if(root==null) return null;
-        String[] labels={"Send","Gửi","Submit"};
-        for(String label:labels){
-            java.util.List<AccessibilityNodeInfo> ns=root.findAccessibilityNodeInfosByText(label);
-            if(ns!=null) for(AccessibilityNodeInfo n:ns) if(n.isClickable()||n.getParent()!=null) return n;
-        }
-        return findClickableNearComposer(root,composer);
-    }
-
-    private String waitForPoeAnswer(String question,long timeout) throws InterruptedException {
-        String previous="";
-        long end=System.currentTimeMillis()+timeout;
-        while(System.currentTimeMillis()<end){
-            AccessibilityNodeInfo r=getRootInActiveWindow();
-            if(isPoeWindow(r)){
-                String a=extractPoeAnswer(r,question);
-                if(a.length()>0 && !normalize(a).equals(normalize(question))){
-                    if(a.equals(previous)) { safeRecycle(r); return a; }
-                    previous=a;
-                }
-            }
-            safeRecycle(r); Thread.sleep(600L);
-        }
-        return previous;
-    }
-
-    private String extractPoeAnswer(AccessibilityNodeInfo root,String question){
-        java.util.ArrayList<String> a=new java.util.ArrayList<>();
-        collectPoeText(root,a);
-        String best="";
-        for(String s:a){
-            if(s==null) continue; String x=s.trim();
-            if(x.length()<2||normalize(x).equals(normalize(question))) continue;
-            if(x.equalsIgnoreCase("send")||x.equalsIgnoreCase("gửi")||x.equalsIgnoreCase("ask")) continue;
-            if(x.length()>best.length()) best=x;
-        }
-        return best;
-    }
-
-    private void collectPoeText(AccessibilityNodeInfo n,java.util.List<String> out){
-        if(n==null) return;
-        CharSequence t=n.getText(); if(t!=null&&t.length()>0) out.add(t.toString());
-        for(int i=0;i<n.getChildCount();i++) collectPoeText(n.getChild(i),out);
-    }
-
-    private void openInstalledChatGpt() throws Exception {
-        final android.content.pm.PackageManager pm = getPackageManager();
-        try { pm.getPackageInfo("com.openai.chatgpt", 0); }
-        catch (Exception e) { throw new Exception("Chưa cài ứng dụng ChatGPT (com.openai.chatgpt)."); }
-
-        final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
-        final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
-        final java.util.concurrent.atomic.AtomicReference<Exception> error =
-                new java.util.concurrent.atomic.AtomicReference<>();
-        main.post(() -> {
             try {
-                android.content.Intent launch = pm.getLaunchIntentForPackage("com.openai.chatgpt");
-                if (launch == null) throw new Exception("Không tìm thấy màn hình mở ChatGPT.");
-                launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK |
-                        android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-                startActivity(launch);
-                done.countDown();
+                if (!setNodeTextAndVerifyPoe(composer, question, 4000L)) {
+                    throw new Exception("Poe không nhận được câu hỏi.");
+                }
 
-                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                    try {
-                        android.content.Intent url = new android.content.Intent(
-                                android.content.Intent.ACTION_VIEW,
-                                android.net.Uri.parse("https://chatgpt.com/?temporary-chat=true"));
-                        url.setPackage("com.openai.chatgpt");
-                        url.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK |
-                                android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-                        startActivity(url);
-                    } catch (Exception ignored) {}
-                }, 350L);
+                AccessibilityNodeInfo fresh = getRootInActiveWindow();
+                AccessibilityNodeInfo send = findPoeSendButton(fresh, composer);
+                safeRecycle(fresh);
+
+                if (send == null || !clickNodeOrParent(send)) {
+                    safeRecycle(send);
+                    throw new Exception("Không tìm thấy nút Gửi của Poe.");
+                }
+                safeRecycle(send);
+
+                postDebug("Đã gửi sang Poe. Đang chờ câu trả lời...");
+                String answer = waitForPoeAnswer(question, 90000L);
+                if (answer == null || answer.trim().isEmpty()) {
+                    throw new Exception("Poe chưa trả về câu trả lời.");
+                }
+
+                if (!returnPackage.isEmpty() && isSupportedChatPackage(returnPackage)) {
+                    final String pkg = returnPackage;
+                    new android.os.Handler(android.os.Looper.getMainLooper())
+                            .postDelayed(() -> returnToPackage(pkg), 150L);
+                }
+                return answer.trim();
+            } finally {
+                safeRecycle(composer);
+            }
+        } finally {
+            poeBusy = false;
+        }
+    }
+
+    private String currentPackage() {
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        String pkg = root == null || root.getPackageName() == null
+                ? "" : root.getPackageName().toString();
+        safeRecycle(root);
+        return pkg;
+    }
+
+    private void ensurePoeForeground() throws Exception {
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (isPoeWindow(root)) {
+            safeRecycle(root);
+            poeStarted = true;
+            return;
+        }
+        safeRecycle(root);
+
+        android.content.pm.PackageManager pm = getPackageManager();
+        try {
+            pm.getPackageInfo(POE_PACKAGE, 0);
+        } catch (Exception e) {
+            throw new Exception("Chưa cài ứng dụng Poe.");
+        }
+
+        android.content.Intent launch = pm.getLaunchIntentForPackage(POE_PACKAGE);
+        if (launch == null) throw new Exception("Không tìm thấy màn hình mở Poe.");
+
+        CountDownLatch done = new CountDownLatch(1);
+        AtomicReference<Exception> error = new AtomicReference<>();
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+            try {
+                launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                        | android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                startActivity(launch);
             } catch (Exception e) {
                 error.set(e);
+            } finally {
                 done.countDown();
             }
         });
-        if (!done.await(5, java.util.concurrent.TimeUnit.SECONDS))
-            throw new Exception("Hết thời gian mở ứng dụng ChatGPT.");
+
+        if (!done.await(5, TimeUnit.SECONDS)) throw new Exception("Hết thời gian mở Poe.");
         if (error.get() != null) throw error.get();
+        poeStarted = true;
     }
 
-    private AccessibilityNodeInfo waitForChatGptComposer(long timeoutMs) throws InterruptedException {
-        long end = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < end) {
-            AccessibilityNodeInfo root = getRootInActiveWindow();
-            if (isChatGptWindow(root)) {
-                AccessibilityNodeInfo composer = findChatGptComposer(root);
-                if (composer != null) {
-                    safeRecycle(root);
-                    return composer;
-                }
-            }
-            safeRecycle(root);
-            Thread.sleep(200L);
-        }
-        return null;
-    }
-
-    private boolean setNodeTextAndVerify(AccessibilityNodeInfo node, String text, long timeoutMs)
-            throws InterruptedException {
-        if (node == null) return false;
-        node.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
-        Bundle args = new Bundle();
-        args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text);
-        long end = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < end) {
-            boolean ok = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
-            if (ok) {
-                Thread.sleep(120L);
-                AccessibilityNodeInfo root = getRootInActiveWindow();
-                AccessibilityNodeInfo current = findChatGptComposer(root);
-                String actual = current == null ? "" : normalize(value(current.getText()));
-                safeRecycle(current);
-                safeRecycle(root);
-                if (actual.equals(normalize(text))) return true;
-            }
-            Thread.sleep(150L);
-        }
-        return false;
-    }
-
-    private String buildChatGptQuestion(String instructions, String incoming) {
+    private String buildPoeQuestion(String instructions, String incoming) {
         String p = instructions == null ? "" : instructions.trim();
         String q = incoming == null ? "" : incoming.trim();
         if (p.isEmpty()) return q;
@@ -418,310 +288,250 @@ public class MessageAccessibilityService extends AccessibilityService {
         return p + "\n\nTin nhắn/câu hỏi cần xử lý:\n" + q;
     }
 
-    private AccessibilityNodeInfo waitForChatGptRoot(long timeoutMs) throws InterruptedException {
-        long end = System.currentTimeMillis() + timeoutMs;
+    private boolean isPoeWindow(AccessibilityNodeInfo root) {
+        return root != null && root.getPackageName() != null
+                && POE_PACKAGE.equals(root.getPackageName().toString());
+    }
+
+    private AccessibilityNodeInfo waitForPoeComposer(long timeout) throws InterruptedException {
+        long end = System.currentTimeMillis() + timeout;
         while (System.currentTimeMillis() < end) {
             AccessibilityNodeInfo root = getRootInActiveWindow();
-            if (isChatGptWindow(root)) return root;
+            if (isPoeWindow(root)) {
+                AccessibilityNodeInfo e = findPoeComposer(root);
+                if (e != null) {
+                    safeRecycle(root);
+                    return e;
+                }
+            }
+            safeRecycle(root);
             Thread.sleep(250L);
         }
         return null;
     }
 
-    private boolean isChatGptWindow(AccessibilityNodeInfo root) {
-        if (root == null || root.getPackageName() == null) return false;
-        return "com.openai.chatgpt".equals(root.getPackageName().toString());
-    }
-
-    private AccessibilityNodeInfo findChatGptComposer(AccessibilityNodeInfo root) {
+    private AccessibilityNodeInfo findPoeComposer(AccessibilityNodeInfo root) {
         if (root == null) return null;
-        List<AccessibilityNodeInfo> candidates = new ArrayList<>();
-        collectEditableCandidates(root, candidates);
-        AccessibilityNodeInfo best = null;
-        int bestScore = Integer.MIN_VALUE;
-        Rect br = new Rect();
-        for (AccessibilityNodeInfo n : candidates) {
-            if (!n.isVisibleToUser()) { safeRecycle(n); continue; }
-            n.getBoundsInScreen(br);
-            int score = br.bottom * 4 + br.right;
-            String hint = (value(n.getHintText()) + " " + value(n.getContentDescription())).toLowerCase(Locale.ROOT);
-            String id = value(n.getViewIdResourceName()).toLowerCase(Locale.ROOT);
-            if (hint.contains("message") || hint.contains("ask") || hint.contains("prompt") ||
-                    hint.contains("chat") || id.contains("composer") || id.contains("message")) score += 100000;
-            if (br.top < getResources().getDisplayMetrics().heightPixels / 3) score -= 100000;
-            if (score > bestScore) {
-                safeRecycle(best); best = n; bestScore = score;
-            } else safeRecycle(n);
-        }
-        return best;
+        return findEditable(root);
     }
 
-    private void collectEditableCandidates(AccessibilityNodeInfo node, List<AccessibilityNodeInfo> out) {
-        if (node == null) return;
-        if (node.isVisibleToUser()) {
-            String cls = value(node.getClassName()).toLowerCase(Locale.ROOT);
-            if (node.isEditable() || cls.contains("edittext") || cls.contains("textinput")) {
-                out.add(AccessibilityNodeInfo.obtain(node));
+    private boolean setNodeTextAndVerifyPoe(AccessibilityNodeInfo node, String text, long timeout)
+            throws InterruptedException {
+        if (node == null) return false;
+        node.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+        Bundle args = new Bundle();
+        args.putCharSequence(
+                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text);
+        long end = System.currentTimeMillis() + timeout;
+        while (System.currentTimeMillis() < end) {
+            if (node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
+                Thread.sleep(150L);
+                String actual = normalize(value(node.getText()));
+                if (actual.equals(normalize(text))) return true;
             }
+            Thread.sleep(200L);
         }
-        for (int i = 0; i < node.getChildCount(); i++) collectEditableCandidates(node.getChild(i), out);
+        return false;
     }
 
-    private AccessibilityNodeInfo findChatGptSendButton(AccessibilityNodeInfo root, AccessibilityNodeInfo composer) {
+    private AccessibilityNodeInfo findPoeSendButton(
+            AccessibilityNodeInfo root, AccessibilityNodeInfo composer) {
         if (root == null) return null;
-        Rect cr = new Rect();
-        if (composer != null) composer.getBoundsInScreen(cr);
+
         List<AccessibilityNodeInfo> nodes = new ArrayList<>();
         collectClickableNodes(root, nodes);
+        Rect cr = new Rect();
+        if (composer != null) composer.getBoundsInScreen(cr);
+
         AccessibilityNodeInfo best = null;
         int bestScore = Integer.MIN_VALUE;
-        int screenW = getResources().getDisplayMetrics().widthPixels;
         for (AccessibilityNodeInfo n : nodes) {
-            if (!n.isVisibleToUser()) { safeRecycle(n); continue; }
-            String all = (value(n.getText()) + " " + value(n.getContentDescription()) + " " +
-                    value(n.getViewIdResourceName())).toLowerCase(Locale.ROOT);
-            Rect r = new Rect(); n.getBoundsInScreen(r);
+            String all = (value(n.getText()) + " " + value(n.getContentDescription()) + " "
+                    + value(n.getViewIdResourceName())).toLowerCase(Locale.ROOT);
+            Rect r = new Rect();
+            n.getBoundsInScreen(r);
             int score = 0;
-            if (all.contains("send") || all.contains("submit") || all.contains("gửi") || all.contains("send_message")) score += 10000;
+            if (all.contains("send") || all.contains("gửi") || all.contains("submit")) score += 10000;
+            if (all.contains("ask")) score += 7000;
             if (all.contains("stop") || all.contains("cancel")) score -= 20000;
-            if (r.bottom >= cr.top - 80 && r.top <= cr.bottom + 80) score += 3000;
-            if (r.right > screenW * 0.65f) score += 2000;
+            if (r.bottom >= cr.top - 100 && r.top <= cr.bottom + 100) score += 3000;
             score -= Math.abs(r.centerY() - cr.centerY());
-            if (score > bestScore) { safeRecycle(best); best=n; bestScore=score; }
-            else safeRecycle(n);
+
+            if (score > bestScore) {
+                safeRecycle(best);
+                best = n;
+                bestScore = score;
+            } else {
+                safeRecycle(n);
+            }
         }
         return bestScore > 0 ? best : null;
     }
 
     private void collectClickableNodes(AccessibilityNodeInfo node, List<AccessibilityNodeInfo> out) {
         if (node == null) return;
-        if (node.isVisibleToUser() && node.isClickable()) out.add(AccessibilityNodeInfo.obtain(node));
-        for (int i=0;i<node.getChildCount();i++) collectClickableNodes(node.getChild(i), out);
-    }
-
-    private void collectVisibleTexts(AccessibilityNodeInfo node, java.util.Set<String> out) {
-        if (node == null) return;
-        if (node.isVisibleToUser()) {
-            String t = normalize(value(node.getText()));
-            if (!t.isEmpty() && t.length() <= 12000) out.add(t);
-            String d = normalize(value(node.getContentDescription()));
-            if (!d.isEmpty() && d.length() <= 500) out.add(d);
+        if (node.isVisibleToUser() && node.isClickable()) {
+            out.add(AccessibilityNodeInfo.obtain(node));
         }
         for (int i = 0; i < node.getChildCount(); i++) {
-            collectVisibleTexts(node.getChild(i), out);
+            collectClickableNodes(node.getChild(i), out);
         }
     }
 
-    private String waitForChatGptAnswer(String question, long timeoutMs) throws InterruptedException {
-        long end = System.currentTimeMillis() + timeoutMs;
-        String last = "";
-        int stable = 0;
-        boolean sentMessageObserved = false;
-
+    private String waitForPoeAnswer(String question, long timeout) throws InterruptedException {
+        String previous = "";
+        long end = System.currentTimeMillis() + timeout;
         while (System.currentTimeMillis() < end) {
             AccessibilityNodeInfo root = getRootInActiveWindow();
-            if (isChatGptWindow(root)) {
-                AccessibilityNodeInfo composer = findChatGptComposer(root);
-                String composerText = composer == null ? "" : normalize(value(composer.getText()));
-                safeRecycle(composer);
-                if (composerText.isEmpty()) sentMessageObserved = true;
-
-                List<String> texts = new ArrayList<>();
-                collectAnswerTexts(root, texts);
-                for (String raw : texts) {
-                    String t = normalize(raw);
-                    if (t.isEmpty() || t.length() < 2 || t.equals(normalize(question))) continue;
-                    if (looksLikeChatGptUi(t) || looksLikeChatGptProgress(t)) continue;
-                    String cleaned = stripQuestion(t, question);
-                    if (cleaned.length() < 2) continue;
-                    if (cleaned.equals(last)) stable++;
-                    else if (sentMessageObserved) { last = cleaned; stable = 1; }
-                }
-                if (sentMessageObserved && stable >= 3 && !last.isEmpty()) {
-                    return last;
+            if (isPoeWindow(root)) {
+                String answer = extractPoeAnswer(root, question);
+                if (!answer.isEmpty() && !normalize(answer).equals(normalize(question))) {
+                    if (answer.equals(previous)) {
+                        safeRecycle(root);
+                        return answer;
+                    }
+                    previous = answer;
                 }
             }
             safeRecycle(root);
-            Thread.sleep(350L);
+            Thread.sleep(600L);
         }
-        return "";
+        return previous;
     }
 
-    private String extractChatGptAnswer(AccessibilityNodeInfo root, String question,
-                                         java.util.Set<String> baseline) {
+    private String extractPoeAnswer(AccessibilityNodeInfo root, String question) {
         List<String> texts = new ArrayList<>();
-        collectAnswerTexts(root, texts);
+        collectPoeText(root, texts);
+
         String best = "";
+        String nq = normalize(question);
         for (String raw : texts) {
-            String t = normalize(raw);
-            if (t.isEmpty() || t.equals(normalize(question)) || looksLikeChatGptUi(t) || looksLikeChatGptProgress(t)) continue;
-            String cleaned = stripQuestion(t, question);
-            if (cleaned.length() > best.length()) best = cleaned;
+            String x = raw == null ? "" : raw.trim();
+            String nx = normalize(x);
+            if (nx.length() < 2 || nx.equals(nq)) continue;
+            if (isPoeUiText(nx)) continue;
+            if (x.length() > best.length()) best = x;
         }
         return best.trim();
     }
 
-    private void collectAnswerTexts(AccessibilityNodeInfo node, List<String> out) {
+    private void collectPoeText(AccessibilityNodeInfo node, List<String> out) {
         if (node == null) return;
         if (node.isVisibleToUser() && !node.isEditable()) {
-            String t = normalize(value(node.getText()));
-            if (!t.isEmpty() && t.length() <= 12000) out.add(t);
+            CharSequence t = node.getText();
+            if (t != null && t.length() > 0) out.add(t.toString());
         }
-        for (int i = 0; i < node.getChildCount(); i++) collectAnswerTexts(node.getChild(i), out);
-    }
-
-    private void safeRecycle(AccessibilityNodeInfo node) {
-        if (node != null) try { node.recycle(); } catch (Exception ignored) {}
-    }
-
-    private String stripQuestion(String text, String question) {
-        String t = text == null ? "" : text.trim();
-        String q = question == null ? "" : question.trim();
-        if (q.isEmpty()) return t;
-        int idx = t.lastIndexOf(q);
-        if (idx >= 0 && idx + q.length() < t.length()) {
-            String after = t.substring(idx + q.length()).trim();
-            if (!after.isEmpty()) return after;
+        for (int i = 0; i < node.getChildCount(); i++) {
+            collectPoeText(node.getChild(i), out);
         }
-        return t;
     }
 
-    private boolean looksLikeChatGptProgress(String text) {
-        String x = text.toLowerCase(Locale.ROOT);
-        return x.equals("thinking") || x.equals("generating") ||
-                x.contains("stop generating") || x.contains("đang suy nghĩ") ||
-                x.contains("đang tạo") || x.equals("cancel");
-    }
-
-    private boolean looksLikeChatGptUi(String text) {
+    private boolean isPoeUiText(String text) {
         String x = text.toLowerCase(Locale.ROOT).trim();
-        return x.equals("chatgpt") || x.equals("send") || x.equals("gửi") ||
-                x.equals("new chat") || x.equals("temporary chat") ||
-                x.equals("copy") || x.equals("sao chép") ||
-                x.equals("regenerate") || x.equals("read aloud") ||
-                x.equals("like") || x.equals("dislike");
+        return x.equals("send") || x.equals("gửi") || x.equals("ask")
+                || x.equals("stop") || x.equals("cancel")
+                || x.equals("poe") || x.equals("new chat")
+                || x.equals("copy") || x.equals("sao chép");
     }
 
     private void returnToPackage(String packageName) {
         try {
-            android.content.Intent back = getPackageManager().getLaunchIntentForPackage(packageName);
+            android.content.Intent back =
+                    getPackageManager().getLaunchIntentForPackage(packageName);
             if (back != null) {
-                back.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK |
-                        android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                back.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                        | android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
                 startActivity(back);
-            } else {
-                performGlobalAction(GLOBAL_ACTION_BACK);
             }
-        } catch (Exception ignored) {
-            performGlobalAction(GLOBAL_ACTION_BACK);
-        }
-    }
-
-    private void questionCleanup(AccessibilityNodeInfo composer, AccessibilityNodeInfo root) {
-        try { if (composer != null) composer.recycle(); } catch (Exception ignored) {}
-        try { if (root != null) root.recycle(); } catch (Exception ignored) {}
+        } catch (Exception ignored) {}
     }
 
     private boolean sendMessage(String text) {
         AccessibilityNodeInfo root = getRootInActiveWindow();
-        if (root == null) return false;
+        if (root == null || root.getPackageName() == null) {
+            safeRecycle(root);
+            return false;
+        }
+        String pkg = root.getPackageName().toString();
+        if (!isSupportedChatPackage(pkg)) {
+            safeRecycle(root);
+            return false;
+        }
 
         AccessibilityNodeInfo input = findEditable(root);
-        if (input == null) return false;
+        if (input == null) {
+            safeRecycle(root);
+            return false;
+        }
         replaceLastInput(input);
-
-        // Focus the current chat app composer before changing its text.
         input.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
 
         Bundle args = new Bundle();
         args.putCharSequence(
                 AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text);
         boolean set = input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
-
+        if (!set) set = input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
         if (!set) {
-            // A few Messenger builds expose the composer as an EditText but do not
-            // report isEditable() correctly. Try the same node once more after focus.
-            set = input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+            safeRecycle(root);
+            return false;
         }
-        if (!set) return false;
 
-        // Verify the composer really contains the requested reply before sending.
-        // Some chat apps accept ACTION_SET_TEXT but update their UI asynchronously.
         boolean verified = false;
         for (int attempt = 0; attempt < 4; attempt++) {
             AccessibilityNodeInfo verifyRoot = getRootInActiveWindow();
             AccessibilityNodeInfo verifyInput = findEditable(verifyRoot);
-            if (verifyInput != null && normalize(value(verifyInput.getText()))
-                    .equals(normalize(text))) {
+            if (verifyInput != null
+                    && normalize(value(verifyInput.getText())).equals(normalize(text))) {
                 verified = true;
+                safeRecycle(verifyInput);
+                safeRecycle(verifyRoot);
                 break;
             }
-            if (verifyInput != null) {
-                verifyInput.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
-                verifyInput.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
-            }
-            try { Thread.sleep(80L); } catch (InterruptedException ignored) {
+            safeRecycle(verifyInput);
+            safeRecycle(verifyRoot);
+            try { Thread.sleep(80L); } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
             }
         }
         if (!verified) {
-            android.widget.Toast.makeText(this, "Không xác nhận được ô nhập tin nhắn.", android.widget.Toast.LENGTH_SHORT).show();
+            safeRecycle(root);
             return false;
         }
 
-        // After verifying the reply is in the composer, tap the app's Send button.
         AccessibilityNodeInfo freshRoot = getRootInActiveWindow();
-        if (freshRoot == null) return false;
-
         AccessibilityNodeInfo send = findSendButton(freshRoot);
-        if (send == null) {
-            android.widget.Toast.makeText(this, "Không tìm thấy nút Gửi của ứng dụng chat.", android.widget.Toast.LENGTH_SHORT).show();
-            return false;
-        }
-        boolean clicked = clickNodeOrParent(send);
+        boolean clicked = send != null && clickNodeOrParent(send);
+        safeRecycle(send);
+        safeRecycle(freshRoot);
+        safeRecycle(root);
 
-        // Fallback for chat apps whose send icon is exposed to Accessibility
-        // but does not dispatch ACTION_CLICK. Try the composer IME send action.
         if (!clicked) {
-            AccessibilityNodeInfo currentInput = findEditable(getRootInActiveWindow());
-            if (currentInput != null) {
-                currentInput.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
-                clicked = currentInput.performAction(0x00400000 /* ACTION_IME_ENTER (API 30) */);
+            AccessibilityNodeInfo currentInput = getRootInActiveWindow();
+            AccessibilityNodeInfo edit = findEditable(currentInput);
+            if (edit != null) {
+                edit.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+                clicked = edit.performAction(0x00400000);
             }
-        }
-        if (!clicked) {
-            android.widget.Toast.makeText(this, "Đã dán nhưng không gửi được: ứng dụng không nhận thao tác Gửi.", android.widget.Toast.LENGTH_LONG).show();
+            safeRecycle(edit);
+            safeRecycle(currentInput);
         }
         return clicked;
     }
 
     private AccessibilityNodeInfo findEditable(AccessibilityNodeInfo node) {
         if (node == null) return null;
-
         if (node.isVisibleToUser()) {
             String cls = value(node.getClassName()).toLowerCase(Locale.ROOT);
-            String text = value(node.getText());
-            String desc = value(node.getContentDescription());
-            String hint = value(node.getHintText());
-            String all = (text + " " + desc + " " + hint).toLowerCase(Locale.ROOT);
-
-            if (node.isEditable() ||
-                    cls.contains("edittext") ||
-                    all.contains("type a message") ||
-                    all.contains("write a message") ||
-                    all.contains("nhập tin nhắn") ||
-                    all.contains("tin nhắn") || all.contains("nhắn tin") ||
-                    all.equals("aa") ||
-                    all.endsWith(" aa")) {
-                if (cls.contains("edittext") || node.isEditable()) return node;
-                if (all.contains("message") || all.contains("nhập") || all.contains(" aa")) {
-                    AccessibilityNodeInfo child = findEditable(node);
-                    if (child != null && child != node) return child;
-                }
+            String all = (value(node.getText()) + " " + value(node.getContentDescription())
+                    + " " + value(node.getHintText())).toLowerCase(Locale.ROOT);
+            if (node.isEditable() || cls.contains("edittext")
+                    || all.contains("type a message") || all.contains("write a message")
+                    || all.contains("nhập tin nhắn") || all.contains("tin nhắn")
+                    || all.equals("aa") || all.endsWith(" aa")) {
+                if (node.isEditable() || cls.contains("edittext")) return node;
             }
         }
-
         for (int i = 0; i < node.getChildCount(); i++) {
             AccessibilityNodeInfo result = findEditable(node.getChild(i));
             if (result != null) return result;
@@ -731,29 +541,16 @@ public class MessageAccessibilityService extends AccessibilityService {
 
     private AccessibilityNodeInfo findSendButton(AccessibilityNodeInfo node) {
         if (node == null) return null;
-
-        String text = value(node.getText());
-        String desc = value(node.getContentDescription());
-        String hint = value(node.getHintText());
+        String all = (value(node.getText()) + " " + value(node.getContentDescription()) + " "
+                + value(node.getHintText()) + " " + value(node.getViewIdResourceName()))
+                .toLowerCase(Locale.ROOT);
         String id = value(node.getViewIdResourceName()).toLowerCase(Locale.ROOT);
         String cls = value(node.getClassName()).toLowerCase(Locale.ROOT);
-        String combined = (text + " " + desc + " " + hint + " " + id)
-                .toLowerCase(Locale.ROOT);
 
-        boolean looksLikeSend =
-                combined.contains("send") ||
-                combined.contains("gửi") ||
-                combined.contains("gui") ||
-                id.contains("message_send") ||
-                id.endsWith("_send");
-
-        if (looksLikeSend && node.isVisibleToUser()) return node;
-
-        // Some chat apps expose only an ImageButton with no
-        // descriptive text but an ID containing "send".
-        if (node.isVisibleToUser() && cls.contains("imagebutton") && id.contains("send")) {
-            return node;
-        }
+        if (node.isVisibleToUser()
+                && (all.contains("send") || all.contains("gửi") || all.contains("gui")
+                || id.contains("message_send") || id.endsWith("_send")
+                || (cls.contains("imagebutton") && id.contains("send")))) return node;
 
         for (int i = 0; i < node.getChildCount(); i++) {
             AccessibilityNodeInfo result = findSendButton(node.getChild(i));
@@ -765,36 +562,29 @@ public class MessageAccessibilityService extends AccessibilityService {
     private boolean clickNodeOrParent(AccessibilityNodeInfo node) {
         AccessibilityNodeInfo current = node;
         for (int i = 0; i < 6 && current != null; i++) {
-            if (current.isVisibleToUser() && current.isClickable()) {
-                if (current.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true;
-            }
+            if (current.isVisibleToUser() && current.isClickable()
+                    && current.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true;
             current = current.getParent();
         }
         return false;
     }
 
     private String extractLatestMessage(AccessibilityNodeInfo root, AccessibilityEvent event) {
-        List<AccessibilityNodeInfo> sources = new ArrayList<>();
         AccessibilityNodeInfo source = event.getSource();
-        if (source != null) sources.add(source);
-
-        // Prefer the event source: on Messenger this is normally the message
-        // TextView that changed, which is much safer than scanning the whole page.
-        for (AccessibilityNodeInfo n : sources) {
-            String candidate = messageTextFromNode(n);
+        if (source != null) {
+            String candidate = messageTextFromNode(source);
+            safeRecycle(source);
             if (candidate != null) return candidate;
         }
 
         List<AccessibilityNodeInfo> candidates = new ArrayList<>();
         collectMessageNodes(root, candidates);
-
         String best = "";
         for (AccessibilityNodeInfo n : candidates) {
             String candidate = messageTextFromNode(n);
-            if (candidate == null) continue;
-            if (candidate.equals(lastSent)) continue;
-            if (candidate.equals(lastIncoming)) continue;
-            best = candidate;
+            if (candidate != null && !candidate.equals(lastSent)
+                    && !candidate.equals(lastIncoming)) best = candidate;
+            safeRecycle(n);
         }
         return best;
     }
@@ -802,27 +592,19 @@ public class MessageAccessibilityService extends AccessibilityService {
     private void collectMessageNodes(AccessibilityNodeInfo node,
                                       List<AccessibilityNodeInfo> out) {
         if (node == null) return;
-
         String text = value(node.getText()).trim();
-        if (node.isVisibleToUser() && !text.isEmpty() &&
-                !node.isEditable() && isMessageLikeNode(node) &&
-                !isLikelyOutgoing(node)) {
-            out.add(node);
+        if (node.isVisibleToUser() && !text.isEmpty() && !node.isEditable()
+                && isMessageLikeNode(node) && !isLikelyOutgoing(node)) {
+            out.add(AccessibilityNodeInfo.obtain(node));
         }
-
-        for (int i = 0; i < node.getChildCount(); i++) {
-            collectMessageNodes(node.getChild(i), out);
-        }
+        for (int i = 0; i < node.getChildCount(); i++) collectMessageNodes(node.getChild(i), out);
     }
 
     private String messageTextFromNode(AccessibilityNodeInfo node) {
         if (node == null || !node.isVisibleToUser() || node.isEditable()) return null;
-
         String text = value(node.getText()).trim();
-        if (text.isEmpty() || text.length() > 4000) return null;
-        if (isUiText(text)) return null;
-        if (!isMessageLikeNode(node)) return null;
-        if (isLikelyOutgoing(node)) return null;
+        if (text.isEmpty() || text.length() > 4000 || isUiText(text)) return null;
+        if (!isMessageLikeNode(node) || isLikelyOutgoing(node)) return null;
         return text;
     }
 
@@ -830,11 +612,7 @@ public class MessageAccessibilityService extends AccessibilityService {
         String id = value(node.getViewIdResourceName()).toLowerCase(Locale.ROOT);
         String cls = value(node.getClassName()).toLowerCase(Locale.ROOT);
         String desc = value(node.getContentDescription()).toLowerCase(Locale.ROOT);
-
-        if (id.contains("message") || id.contains("messenger") ||
-                desc.contains("message")) return true;
-
-        // Many chat apps expose chat text as TextView without a useful ID.
+        if (id.contains("message") || id.contains("messenger") || desc.contains("message")) return true;
         if (cls.contains("textview")) {
             Rect r = new Rect();
             node.getBoundsInScreen(r);
@@ -847,38 +625,38 @@ public class MessageAccessibilityService extends AccessibilityService {
         Rect r = new Rect();
         node.getBoundsInScreen(r);
         if (r.right <= r.left) return false;
-
-        // In many chat layouts, outgoing bubbles are normally on the right and incoming
-        // bubbles are on the left. Use a conservative threshold to avoid replying
-        // to our own messages.
         int center = (r.left + r.right) / 2;
-        int screenWidth = getResources().getDisplayMetrics().widthPixels;
-        return center > (screenWidth * 0.58f);
+        return center > getResources().getDisplayMetrics().widthPixels * 0.58f;
     }
 
     private boolean isUiText(String s) {
         String x = s.toLowerCase(Locale.ROOT).trim();
-        return x.equals("send") || x.equals("gửi") || x.equals("gui") ||
-                x.equals("message") || x.equals("messenger") ||
-                x.equals("aa") || x.equals("more") || x.equals("thêm") ||
-                x.contains("type a message") || x.contains("write a message") ||
-                x.contains("nhập tin nhắn") || x.contains("tin nhắn") || x.contains("nhắn tin");
+        return x.equals("send") || x.equals("gửi") || x.equals("gui")
+                || x.equals("message") || x.equals("messenger") || x.equals("aa")
+                || x.equals("more") || x.equals("thêm")
+                || x.contains("type a message") || x.contains("write a message")
+                || x.contains("nhập tin nhắn") || x.contains("tin nhắn");
     }
 
     private void replaceLastInput(AccessibilityNodeInfo input) {
-        if (lastInput != null && lastInput != input) {
-            try { lastInput.recycle(); } catch (Exception ignored) {}
-        }
+        if (lastInput != null && lastInput != input) safeRecycle(lastInput);
         lastInput = input;
     }
 
-    private String value(CharSequence s) {
-        return s == null ? "" : s.toString();
-    }
+    private String value(CharSequence s) { return s == null ? "" : s.toString(); }
 
     private String normalize(String s) {
         if (s == null) return "";
         return s.replace("\u00a0", " ").trim().replaceAll("\\s+", " ");
+    }
+
+    private String shortError(String message) {
+        String x = message == null ? "Lỗi không xác định" : message.trim();
+        return x.length() > 180 ? x.substring(0, 180) : x;
+    }
+
+    private void safeRecycle(AccessibilityNodeInfo node) {
+        if (node != null) try { node.recycle(); } catch (Exception ignored) {}
     }
 
     @Override public void onInterrupt() {}
@@ -886,28 +664,32 @@ public class MessageAccessibilityService extends AccessibilityService {
     @Override public void onDestroy() {
         instance = null;
         worker.shutdownNow();
-        if (lastInput != null) {
-            try { lastInput.recycle(); } catch (Exception ignored) {}
-            lastInput = null;
-        }
+        safeRecycle(lastInput);
+        lastInput = null;
         super.onDestroy();
     }
 
-    public boolean putTextInMessenger(String text) {
-        return sendMessage(text);
-    }
+    public boolean putTextInMessenger(String text) { return sendMessage(text); }
 
-    /** Put text into the current chat composer without pressing Send. */
     public boolean putTextInComposerOnly(String text) {
         if (text == null || text.trim().isEmpty()) return false;
         AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root == null || !isSupportedChatPackage(value(root.getPackageName()))) {
+            safeRecycle(root);
+            return false;
+        }
         AccessibilityNodeInfo input = findEditable(root);
-        if (input == null) return false;
+        if (input == null) {
+            safeRecycle(root);
+            return false;
+        }
         input.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
         Bundle args = new Bundle();
-        args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text);
+        args.putCharSequence(
+                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text);
         boolean ok = input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
-        if (ok) replaceLastInput(input);
+        if (ok) replaceLastInput(input); else safeRecycle(input);
+        safeRecycle(root);
         return ok;
     }
 }
