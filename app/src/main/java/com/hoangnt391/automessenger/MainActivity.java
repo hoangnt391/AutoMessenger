@@ -86,7 +86,7 @@ public class MainActivity extends Activity {
         // ===== PROMPTS =====
         LinearLayout promptCard = card();
         promptCard.addView(tv("📝 Prompt mẫu", 19, 0xFF27212E, true));
-        promptCard.addView(tv("Prompt là mẫu/luật trả lời được lưu lại. Khi có tin nhắn mới, app kết hợp prompt + nội dung tin nhắn + ngữ cảnh rồi gửi cho AI.", 13, 0xFF6F6878, false));
+        promptCard.addView(tv("Prompt là phong cách trả lời được lưu lại. Khi tự động trả lời, app giữ nguyên nội dung và ngữ cảnh cuộc trò chuyện rồi gửi sang Ashna.", 13, 0xFF6F6878, false));
 
         Button addPrompt = button("＋ Thêm prompt mới");
         addPrompt.setOnClickListener(v -> showPromptEditor(null, null));
@@ -117,7 +117,7 @@ public class MainActivity extends Activity {
         // ===== DIRECT AI CHAT =====
         LinearLayout chatCard = card();
         chatCard.addView(tv("🤖 Hỏi Ashna Web Free", 19, 0xFF27212E, true));
-        chatCard.addView(tv("Khu vực này dùng cùng Ashna Web Free chạy ngầm với luồng tự động.", 13, 0xFF6F6878, false));
+        chatCard.addView(tv("Khi tắt tự động trả lời, m có thể dùng khu vực này để hỏi/tìm kiếm như đang hỏi ChatGPT; kết quả hiện trong bong bóng để đọc và copy.", 13, 0xFF6F6878, false));
 
         directInput = new EditText(this);
         directInput.setHint("Ví dụ: Viết một câu trả lời...");
