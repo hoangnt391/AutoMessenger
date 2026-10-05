@@ -569,7 +569,7 @@ public class MessageAccessibilityService extends AccessibilityService {
                 + "var body=document.body?document.body.innerText:'';"
                 + "var lines=body.split(/\\n+/).map(function(x){return x.trim()}).filter(Boolean);"
                 + "var qi=-1;for(var i=lines.length-1;i>=0;i--){if(lines[i]===q){qi=i;break;}}"
-                + "var bad=/^(send|gửi|new chat|chat|settings|sign in|log in|copy|regenerate|stop|retry|model|agent|ashnaai can make mistakes|how can i help you today\\?|input)$/i;"
+                + "var bad=/^(send|gửi|new chat|chat|settings|sign in|log in|copy|regenerate|stop|retry|model|agent|input|gpt\\s*6\\s*sol|ashnaai(?:\\s+can\\s+make\\s+mistakes)?|how can i help you today\\?)$/i;"
                 + "var cand=[];"
                 + "if(qi>=0){for(var j=qi+1;j<lines.length;j++){var t=lines[j];if(t===q||bad.test(t)||t.length<2||t.length>4000)continue;cand.push(t);}}"
                 + "if(!cand.length){var nodes=[].slice.call(document.querySelectorAll('[data-message-id],[data-message],[role=\"article\"],[data-testid*=\"message\"],[class*=\"message\"],[class*=\"Message\"]'));"
@@ -596,8 +596,8 @@ public class MessageAccessibilityService extends AccessibilityService {
             if (a != null) {
                 for (int i = a.length() - 1; i >= 0; i--) {
                     String x = a.optString(i, "").trim();
-                    x = removeAshnaDisclaimer(x);
-                    if (x.length() >= 2 && !x.equals(question) && !isWebUiText(x)) return x;
+                    x = cleanAshnaAnswer(x, question);
+                    if (x != null && x.length() >= 2) return x;
                 }
             }
             String body = o.optString("body", "");
@@ -606,8 +606,8 @@ public class MessageAccessibilityService extends AccessibilityService {
                 String tail = body.substring(p + question.length()).trim();
                 String[] lines = tail.split("\\n+");                StringBuilder b = new StringBuilder();
                 for (String line : lines) {
-                    String x = removeAshnaDisclaimer(line.trim());
-                    if (x.isEmpty() || isWebUiText(x)) continue;
+                    String x = cleanAshnaAnswer(line.trim(), question);
+                    if (x == null || x.isEmpty()) continue;
                     if (b.length() > 0) b.append("\\n");
                     b.append(x);
                     if (b.length() > 3500) break;
@@ -624,6 +624,35 @@ public class MessageAccessibilityService extends AccessibilityService {
         x = x.replaceAll("(?i)\\s*AshnaAI\\s+can\\s+make\\s+mistakes\\.?\\s*$", "");
         x = x.replaceAll("(?i)\\s*AshnaAI\\s+can\\s+make\\s+mistakes\\.?", "");
         return x.trim();
+    }
+
+    private boolean isAshnaModelText(String text) {
+        if (text == null) return true;
+        String x = text.trim().toLowerCase(Locale.ROOT)
+                .replaceAll("[\\u00a0\\t\\r\\n]+", " ")
+                .replaceAll("\\s+", " ");
+        return x.equals("gpt 6 sol")
+                || x.equals("gpt-6-sol")
+                || x.equals("gpt6 sol")
+                || x.equals("model: gpt 6 sol")
+                || x.equals("model: gpt-6-sol")
+                || x.equals("agent: gpt 6 sol")
+                || x.equals("agent: gpt-6-sol")
+                || x.matches("^gpt\\s*[-]?\\s*6\\s*[-]?\\s*sol$");
+    }
+
+    private String cleanAshnaAnswer(String text, String question) {
+        if (text == null) return null;
+        String[] lines = removeAshnaDisclaimer(text).split("\\n+");
+        StringBuilder out = new StringBuilder();
+        for (String line : lines) {
+            String x = removeAshnaDisclaimer(line).trim();
+            if (x.isEmpty() || x.equals(question) || isWebUiText(x) || isAshnaModelText(x)) continue;
+            if (out.length() > 0) out.append("\\n");
+            out.append(x);
+            if (out.length() > 3500) break;
+        }
+        return out.length() == 0 ? null : out.toString().trim();
     }
 
     private String jsQuote(String value) {
