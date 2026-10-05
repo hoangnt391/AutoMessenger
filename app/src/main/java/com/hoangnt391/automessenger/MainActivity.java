@@ -33,6 +33,8 @@ public class MainActivity extends Activity {
     private TextView status, selectedPrompt;
     private LinearLayout promptList;
     private EditText directInput;
+    private EditText ashnaKeyInput;
+    private EditText ashnaModelInput;
     private TextView directResult;
     private String activePromptName = "Mặc định";
     private String activePromptText = DEFAULT_PROMPT;
@@ -100,10 +102,34 @@ public class MainActivity extends Activity {
         promptCard.addView(promptList);
         content.addView(promptCard);
 
+        // ===== ASHNAAI =====
+        LinearLayout aiCard = card();
+        aiCard.addView(tv("🤖 AshnaAI", 19, 0xFF27212E, true));
+        aiCard.addView(tv("Kết nối API trực tiếp, chạy nền không mở tab AI.", 13, 0xFF6F6878, false));
+
+        ashnaKeyInput = new EditText(this);
+        ashnaKeyInput.setHint("AshnaAI API key (sk-...)");
+        ashnaKeyInput.setSingleLine(true);
+        ashnaKeyInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        ashnaKeyInput.setText(p.getString("ashna_api_key", ""));
+        aiCard.addView(ashnaKeyInput);
+
+        ashnaModelInput = new EditText(this);
+        ashnaModelInput.setHint("Model ID, ví dụ: gpt-4o-mini");
+        ashnaModelInput.setSingleLine(true);
+        ashnaModelInput.setText(p.getString("ashna_model", "gpt-4o-mini"));
+        aiCard.addView(ashnaModelInput);
+
+        Button testAshna = button("🔌 Kiểm tra kết nối AshnaAI");
+        testAshna.setOnClickListener(v -> testAshnaConnection());
+        aiCard.addView(testAshna);
+        content.addView(aiCard);
+
         // ===== DIRECT AI CHAT =====
         LinearLayout chatCard = card();
         chatCard.addView(tv("🤖 Hỏi AI trực tiếp", 19, 0xFF27212E, true));
-        chatCard.addView(tv("Khu vực này độc lập với luồng tự động. Nhập câu hỏi bất kỳ để hỏi Poe qua cơ chế hiện tại.", 13, 0xFF6F6878, false));
+        chatCard.addView(tv("Khu vực này độc lập với luồng tự động. Nhập câu hỏi bất kỳ để hỏi AshnaAI qua API trực tiếp.", 13, 0xFF6F6878, false));
 
         directInput = new EditText(this);
         directInput.setHint("Ví dụ: Phân tích câu này hoặc viết một câu trả lời...");
@@ -112,7 +138,7 @@ public class MainActivity extends Activity {
         directInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         chatCard.addView(directInput);
 
-        Button ask = button("➤ Gửi cho Poe");
+        Button ask = button("➤ Gửi cho AshnaAI");
         ask.setOnClickListener(v -> askDirect());
         chatCard.addView(ask);
 
@@ -326,6 +352,26 @@ public class MainActivity extends Activity {
         Toast.makeText(this, "Đã xóa prompt", Toast.LENGTH_SHORT).show();
     }
 
+    private void testAshnaConnection() {
+        final String key = ashnaKeyInput == null ? "" : ashnaKeyInput.getText().toString().trim();
+        final String model = ashnaModelInput == null ? "gpt-4o-mini" : ashnaModelInput.getText().toString().trim();
+        if (key.isEmpty()) {
+            Toast.makeText(this, "Nhập AshnaAI API key trước", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        p.edit().putString("ashna_api_key", key)
+                .putString("ashna_model", model.isEmpty() ? "gpt-4o-mini" : model).apply();
+        Toast.makeText(this, "Đang kiểm tra AshnaAI...", Toast.LENGTH_SHORT).show();
+        executor.execute(() -> {
+            try {
+                AiClient.validateKey(key, model);
+                runOnUiThread(() -> Toast.makeText(this, "AshnaAI kết nối OK ✓", Toast.LENGTH_LONG).show());
+            } catch (Exception e) {
+                runOnUiThread(() -> Toast.makeText(this, "AshnaAI lỗi: " + e.getMessage(), Toast.LENGTH_LONG).show());
+            }
+        });
+    }
+
     private void askDirect() {
         final String q = directInput.getText().toString().trim();
         if (q.isEmpty()) {
@@ -333,7 +379,7 @@ public class MainActivity extends Activity {
             return;
         }
         if (!MessageAccessibilityService.isRunning()) {
-            directResult.setText("⚠️ Chưa kết nối Trợ năng. Chat trực tiếp cũng dùng Trợ năng để điều khiển ứng dụng Poe.");
+            directResult.setText("⚠️ Chưa kết nối Trợ năng. Chat trực tiếp cũng dùng Trợ năng để tự động đọc/gửi tin nhắn; AI chạy trực tiếp qua AshnaAI API.");
             new android.app.AlertDialog.Builder(this)
                     .setTitle("Cần bật Trợ năng")
                     .setMessage("Vào Cài đặt > Trợ năng > AutoMessenger và bật dịch vụ. Sau đó quay lại đây và gửi câu hỏi.")
@@ -343,13 +389,13 @@ public class MainActivity extends Activity {
                     .show();
             return;
         }
-        directResult.setText("🤖 Đang gửi câu hỏi sang Poe...");
+        directResult.setText("🤖 Đang gửi câu hỏi sang AshnaAI...");
         executor.execute(() -> {
             try {
-                String answer = AiClient.reply("", "", "Trả lời trực tiếp câu hỏi của người dùng. " +
+                String answer = AiClient.reply(p.getString("ashna_api_key", ""), p.getString("ashna_model", "gpt-4o-mini"), "Trả lời trực tiếp câu hỏi của người dùng. " +
                         "Không tự ý gửi câu trả lời sang người khác. Trả lời rõ ràng, hữu ích.", q);
                 runOnUiThread(() -> directResult.setText(answer == null || answer.trim().isEmpty()
-                        ? "Không đọc được câu trả lời từ Poe." : answer));
+                        ? "Không đọc được câu trả lời từ AshnaAI." : answer));
             } catch (Exception e) {
                 runOnUiThread(() -> directResult.setText("❌ Lỗi: " + e.getMessage()));
             }
@@ -367,14 +413,17 @@ public class MainActivity extends Activity {
         status.setText("Trạng thái: " +
                 (MessageAccessibilityService.isRunning() ? "Trợ năng OK" : "Chưa bật Trợ năng") +
                 " • Prompt: " + activePromptName +
-                " • AI: Poe ứng dụng");
+                " • AI: AshnaAI API");
     }
 
     private void saveAndApply() {
         boolean want = enabled.isChecked();
         boolean autoWant = auto.isChecked();
 
-        p.edit().putBoolean("enabled", want).putBoolean("auto", autoWant)
+        String key = ashnaKeyInput == null ? "" : ashnaKeyInput.getText().toString().trim();
+        String model = ashnaModelInput == null ? "gpt-4o-mini" : ashnaModelInput.getText().toString().trim();
+        p.edit().putString("ashna_api_key", key).putString("ashna_model", model.isEmpty() ? "gpt-4o-mini" : model)
+                .putBoolean("enabled", want).putBoolean("auto", autoWant)
                 .putString("prompt", activePromptText).putString("active_prompt_name", activePromptName)
                 .putString("active_prompt_text", activePromptText).putBoolean("bubble_hidden", false).apply();
 
