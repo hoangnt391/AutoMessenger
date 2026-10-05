@@ -368,20 +368,27 @@ public class MainActivity extends Activity {
         final String key = ashnaKeyInput == null ? "" : ashnaKeyInput.getText().toString().trim();
         final String model = ashnaModelInput == null ? "gpt-6.1-sol" : ashnaModelInput.getText().toString().trim();
         if (key.isEmpty()) {
+            if (errorLog != null) errorLog.setText("❌ Chưa nhập AshnaAI API key.");
             Toast.makeText(this, "Nhập AshnaAI API key trước", Toast.LENGTH_SHORT).show();
             return;
         }
         p.edit().putString("ashna_api_key", key)
                 .putString("ashna_model", model.isEmpty() ? "gpt-6.1-sol" : model).apply();
+        if (errorLog != null) errorLog.setText("⏳ Đang kiểm tra AshnaAI...");
         Toast.makeText(this, "Đang kiểm tra AshnaAI...", Toast.LENGTH_SHORT).show();
         executor.execute(() -> {
             try {
                 AiClient.validateKey(key, model);
-                runOnUiThread(() -> if (errorLog != null) errorLog.setText("✅ AshnaAI kết nối OK.");
-                    Toast.makeText(this, "AshnaAI kết nối OK ✓", Toast.LENGTH_LONG).show());
+                runOnUiThread(() -> {
+                    if (errorLog != null) errorLog.setText("✅ AshnaAI kết nối OK.");
+                    Toast.makeText(this, "AshnaAI kết nối OK ✓", Toast.LENGTH_LONG).show();
+                });
             } catch (Exception e) {
-                runOnUiThread(() -> if (errorLog != null) errorLog.setText("❌ AshnaAI lỗi:\n" + String.valueOf(e.getMessage()));
-                    Toast.makeText(this, "AshnaAI lỗi: " + e.getMessage(), Toast.LENGTH_LONG).show());
+                runOnUiThread(() -> {
+                    String err = "❌ AshnaAI lỗi:\n" + String.valueOf(e.getMessage());
+                    if (errorLog != null) errorLog.setText(err);
+                    Toast.makeText(this, "AshnaAI lỗi: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                });
             }
         });
     }
