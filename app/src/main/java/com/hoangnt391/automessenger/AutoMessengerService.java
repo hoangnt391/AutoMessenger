@@ -418,6 +418,22 @@ public class AutoMessengerService extends Service {
         status.setPadding(0, (int)(3*d), 0, (int)(8*d));
         panel.addView(status);
 
+        android.widget.Button ashnaLogin = new android.widget.Button(this);
+        ashnaLogin.setText("🔐 Đăng nhập Ashna Web (1 lần)");
+        ashnaLogin.setAllCaps(false);
+        ashnaLogin.setTextSize(12);
+        ashnaLogin.setOnClickListener(v -> {
+            MessageAccessibilityService service = getAccessibilityServiceInstance();
+            if (service != null) {
+                service.openAshnaLogin();
+                Toast.makeText(this, "Đăng nhập Ashna. Xong sẽ tự ẩn và chạy ngầm.",
+                        Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "Chưa bật Trợ năng.", Toast.LENGTH_SHORT).show();
+            }
+        });
+        panel.addView(ashnaLogin);
+
         android.widget.ScrollView scroll = new android.widget.ScrollView(this);
         scroll.setFillViewport(true);
         android.widget.LinearLayout messages = new android.widget.LinearLayout(this);
