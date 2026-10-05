@@ -40,6 +40,7 @@ public class MessageAccessibilityService extends AccessibilityService {
     private android.view.WindowManager ashnaWebWindowManager;
     private android.view.WindowManager.LayoutParams ashnaWebWindowParams;
     private ReplyCallback ashnaWebCallback;
+    private int ashnaLoginReadyChecks = 0;
 
     private void ensureDebugChannel() {
         if (android.os.Build.VERSION.SDK_INT >= 26) {
@@ -334,8 +335,8 @@ public class MessageAccessibilityService extends AccessibilityService {
             ashnaHiddenWebView.setAlpha(0.01f);
             ashnaHiddenWebView.setVisibility(android.view.View.VISIBLE);
             ashnaHiddenWebView.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
-            ashnaHiddenWebView.setFocusable(false);
-            ashnaHiddenWebView.setFocusableInTouchMode(false);
+            ashnaHiddenWebView.setFocusable(true);
+            ashnaHiddenWebView.setFocusableInTouchMode(true);
 
             ashnaHiddenWebView.setWebViewClient(new android.webkit.WebViewClient() {
                 @Override public void onPageFinished(android.webkit.WebView view, String url) {
@@ -399,13 +400,21 @@ public class MessageAccessibilityService extends AccessibilityService {
                 reportError("Không tạo được màn hình đăng nhập Ashna Web.");
                 return;
             }
+
+            // Keep login WebView visible/touchable until authentication is
+            // positively confirmed. A visible composer alone is not enough.
+            ashnaLoginReadyChecks = 0;
             ashnaHiddenWebView.setAlpha(1f);
+            ashnaHiddenWebView.setVisibility(android.view.View.VISIBLE);
+            ashnaHiddenWebView.setFocusable(true);
+            ashnaHiddenWebView.setFocusableInTouchMode(true);
+            ashnaHiddenWebView.requestFocus();
             ashnaWebWindowParams.flags =
                     android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
             try { ashnaWebWindowManager.updateViewLayout(ashnaHiddenWebView, ashnaWebWindowParams); }
             catch (Exception ignored) {}
             ashnaHiddenWebView.loadUrl("https://app.ashna.ai/chat?agent=gpt-6-sol");
-            postDebug("Ashna Web: đăng nhập 1 lần, xong sẽ tự ẩn.");
+            postDebug("Ashna Web: đăng nhập đang mở. Chỉ tự ẩn sau khi xác nhận đăng nhập xong.");
             monitorAshnaLogin(0);
         });
     }
@@ -423,20 +432,62 @@ public class MessageAccessibilityService extends AccessibilityService {
 
     private void monitorAshnaLogin(final int attempt) {
         if (ashnaHiddenWebView == null) return;
-        if (attempt > 300) { hideAshnaWeb(); return; }
+
+        // Never hide because of a timeout. OAuth/email login may take longer.
+        if (attempt > 600) {
+            postDebug("Ashna Web: vẫn đang chờ đăng nhập. WebView được giữ nguyên.");
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                    () -> monitorAshnaLogin(601), 5000L);
+            return;
+        }
+
         String js = "javascript:(function(){"
                 + "var t=document.body?document.body.innerText:'';"
-                + "var els=[].slice.call(document.querySelectorAll('textarea,input,[contenteditable=\"true\"]'));"
-                + "var visible=els.some(function(e){var r=e.getBoundingClientRect();"
-                + "return r.width>0&&r.height>0&&getComputedStyle(e).display!=='none'});"
-                + "var login=/sign in|log in|đăng nhập|login/i.test(t);"
-                + "return login?'LOGIN':(visible?'READY':'WAIT');})();";
+                + "var u=location.href||'';"
+                + "var els=[].slice.call(document.querySelectorAll('textarea,input,[contenteditable="true"]'));"
+                + "var visible=function(e){if(!e)return false;var r=e.getBoundingClientRect();"
+                + "var s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!='none'&&s.visibility!='hidden'};"
+                + "var composer=els.some(function(e){return visible(e)&&!e.disabled&&e.type!='hidden'});"
+                + "var login=/sign in|log in|continue with google|continue with email|đăng nhập|login/i.test(t);"
+                + "var auth=/log out|sign out|đăng xuất|my account|profile/i.test(t);"
+                + "var chat=/\\/chat/i.test(u)||/new chat/i.test(t);"
+                + "return JSON.stringify({login:login,auth:auth,composer:composer,chat:chat,url:u});})();";
+
         ashnaHiddenWebView.evaluateJavascript(js, result -> {
-            if ("READY".equals(decodeJsString(result))) {
+            String state = decodeJsString(result);
+            boolean confirmed = false;
+            try {
+                org.json.JSONObject o = new org.json.JSONObject(state);
+                boolean login = o.optBoolean("login", true);
+                boolean auth = o.optBoolean("auth", false);
+                boolean composer = o.optBoolean("composer", false);
+                boolean chat = o.optBoolean("chat", false);
+                String url = o.optString("url", "");
+
+                // Require chat + composer + no login UI. The /chat URL is
+                // also accepted as the authenticated signal because Ashna
+                // does not always render a visible profile/logout label.
+                confirmed = composer && chat && !login && url.contains("/chat")
+                        && (auth || !login);
+            } catch (Exception ignored) {}
+
+            if (confirmed) ashnaLoginReadyChecks++;
+            else ashnaLoginReadyChecks = 0;
+
+            // Three consecutive checks prevent a transient page render from
+            // hiding the login screen too early.
+            if (ashnaLoginReadyChecks >= 3) {
+                try { android.webkit.CookieManager.getInstance().flush(); }
+                catch (Exception ignored) {}
+                getSharedPreferences("AutoMessenger", 0)
+                        .edit().putBoolean("ashna_login_confirmed", true).apply();
                 hideAshnaWeb();
-                postDebug("Ashna Web: đăng nhập xong, chuyển về chạy ngầm.");
+                ashnaHiddenWebView.setFocusable(false);
+                ashnaHiddenWebView.setFocusableInTouchMode(false);
+                postDebug("Ashna Web: ĐÃ xác nhận đăng nhập. Đã lưu phiên và chuyển chạy ngầm.");
                 return;
             }
+
             new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
                     () -> monitorAshnaLogin(attempt + 1), 1000L);
         });
