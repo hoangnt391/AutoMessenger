@@ -18,6 +18,7 @@ public class MessageAccessibilityService extends AccessibilityService {
     private AccessibilityNodeInfo lastInput;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private volatile boolean replying = false;
+    private volatile boolean poeBusy = false;
     private String lastIncoming = "";
     private String lastSent = "";
     private long lastReplyAt = 0L;
@@ -130,13 +131,13 @@ public class MessageAccessibilityService extends AccessibilityService {
 
     private void generateAndSend(final String incoming) {
         replying = true;
-        postDebug("Đang gửi nội dung sang ChatGPT...");
+        postDebug("Đang gửi nội dung sang Poe...");
         worker.execute(() -> {
             try {
                 android.content.SharedPreferences p =
                         getSharedPreferences("AutoMessenger", 0);
                 String key = p.getString("api_key", "");
-                String model = p.getString("model", "gemini-3.5-flash-lite");
+                String model = "poe";
                 String prompt = p.getString("prompt",
                         "Bạn đang tạo NỘI DUNG TIN NHẮN để ứng dụng tự động gửi cho người khác. " +
                         "Chỉ trả về đúng nội dung tin nhắn cần gửi. " +
@@ -145,7 +146,7 @@ public class MessageAccessibilityService extends AccessibilityService {
                         "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. Không markdown.");
 
                 String reply = AiClient.reply(key, model, prompt, incoming);
-                postDebug("ChatGPT đã trả lời. Đang chuẩn bị gửi...");
+                postDebug("Poe đã trả lời. Đang chuẩn bị gửi...");
                 if (reply != null && !reply.trim().isEmpty()) {
                     AutoMessengerService.setLastConversation(incoming, reply.trim());
                     new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
@@ -157,7 +158,7 @@ public class MessageAccessibilityService extends AccessibilityService {
                     });
                 }
             } catch (Exception e) {
-                final String message = e.getMessage() == null ? "Lỗi ChatGPT không xác định" : e.getMessage();
+                final String message = e.getMessage() == null ? "Lỗi Poe không xác định" : e.getMessage();
                 postDebug("LỖI: " + shortError(message));
                 new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
                         android.widget.Toast.makeText(this,
@@ -170,98 +171,164 @@ public class MessageAccessibilityService extends AccessibilityService {
         });
     }
 
-    /** Sends the bubble question to the installed ChatGPT app and returns its real reply. */
-    public void generateManualReply(final String question, final ManualReplyCallback callback) {
-        final String q = question == null ? "" : question.trim();
-        if (q.isEmpty()) return;
-        worker.execute(() -> {
-            try {
-                android.content.SharedPreferences p = getSharedPreferences("AutoMessenger", 0);
-                String prompt = p.getString("prompt",
-                        "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. " +
-                        "Chỉ trả về nội dung câu trả lời, không giải thích, không markdown.");
-                final String answer = requestChatGptReply(prompt, q).trim();
-                if (answer.isEmpty()) throw new Exception("ChatGPT trả về câu trả lời trống.");
-                AutoMessengerService.setLastConversation(q, answer);
-                new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
-                        callback.onResult(q, answer, null));
-            } catch (Exception e) {
-                final String message = e.getMessage() == null
-                        ? "Không kết nối được với ChatGPT." : shortError(e.getMessage());
-                new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
-                        callback.onResult(q, "", message));
+    /** Sends exactly one request to Poe and reads the answer through Accessibility. */
+    public String requestPoeReply(String instructions, String incoming) throws Exception {
+        if (poeBusy) throw new Exception("Poe đang xử lý yêu cầu trước. Vui lòng chờ.");
+        poeBusy = true;
+        try {
+            String question = buildPoeQuestion(instructions, incoming);
+            if (question.trim().isEmpty()) throw new IllegalArgumentException("Câu hỏi trống.");
+            AccessibilityNodeInfo before = getRootInActiveWindow();
+            String returnPackage = before == null || before.getPackageName() == null ? "" : before.getPackageName().toString();
+            safeRecycle(before);
+            postDebug("Đang mở Poe...");
+            openPoe();
+            AccessibilityNodeInfo root = waitForPoeRoot(20000L);
+            safeRecycle(root);
+            if (root == null) throw new Exception("Không mở được Poe. Hãy cài Poe và bật Trợ năng cho AutoMessenger.");
+            AccessibilityNodeInfo composer = waitForPoeComposer(12000L);
+            if (composer == null) throw new Exception("Không tìm thấy ô nhập Poe.");
+            if (!setNodeTextAndVerifyPoe(composer, question, 4000L)) {
+                safeRecycle(composer); throw new Exception("Poe không nhận được câu hỏi.");
             }
-        });
-    }
-
-    public interface ManualReplyCallback {
-        void onResult(String question, String answer, String error);
-    }
-
-    private String shortError(String message) {
-        String x = message == null ? "" : message.replace("\\n", " ").trim();
-        if (x.length() > 180) x = x.substring(0, 180) + "...";
-        return x.isEmpty() ? "kiểm tra API key, model và quyền Trợ năng." : x;
-    }
-
-
-    /**
-     * Open the official ChatGPT Android app on the temporary-chat URL, enter the
-     * request, press Send, read the assistant answer from the accessibility tree,
-     * then return to the chat app that was active before ChatGPT was opened.
-     *
-     * No screenshots are captured for this path and no image/bitmap is stored.
-     */
-    public String requestChatGptReply(String instructions, String incoming) throws Exception {
-        final String question = buildChatGptQuestion(instructions, incoming);
-        if (question.trim().isEmpty()) throw new IllegalArgumentException("Câu hỏi trống.");
-
-        AccessibilityNodeInfo before = getRootInActiveWindow();
-        final String returnPackage = before == null || before.getPackageName() == null
-                ? "" : before.getPackageName().toString();
-        safeRecycle(before);
-
-        postDebug("Đang mở ChatGPT...");
-        openInstalledChatGpt();
-        AccessibilityNodeInfo chatRoot = waitForChatGptRoot(20000L);
-        safeRecycle(chatRoot);
-        if (chatRoot == null) {
-            throw new Exception("Không mở được ứng dụng ChatGPT. Hãy cài ChatGPT và bật Trợ năng cho AutoMessenger.");
-        }
-
-        AccessibilityNodeInfo composer = waitForChatGptComposer(12000L);
-        if (composer == null) throw new Exception("Không tìm thấy ô nhập ChatGPT.");
-
-        postDebug("Đã mở ChatGPT. Đang nhập câu hỏi...");
-        if (!setNodeTextAndVerify(composer, question, 3000L)) {
-            safeRecycle(composer);
-            throw new Exception("ChatGPT không nhận được câu hỏi. Ô nhập chưa nhận được nội dung.");
-        }
-
-        AccessibilityNodeInfo fresh = getRootInActiveWindow();
-        AccessibilityNodeInfo send = findChatGptSendButton(fresh, composer);
-        safeRecycle(fresh);
-        if (send == null || !clickNodeOrParent(send)) {
+            AccessibilityNodeInfo fresh = getRootInActiveWindow();
+            AccessibilityNodeInfo send = findPoeSendButton(fresh, composer);
+            safeRecycle(fresh);
+            if (send == null || !clickNodeOrParent(send)) {
+                safeRecycle(send); safeRecycle(composer); throw new Exception("Không tìm thấy nút Gửi của Poe.");
+            }
             safeRecycle(send);
+            postDebug("Đã gửi câu hỏi sang Poe. Đang chờ...");
+            String answer = waitForPoeAnswer(question, 90000L);
             safeRecycle(composer);
-            throw new Exception("Không tìm thấy nút Gửi của ChatGPT.");
-        }
-        safeRecycle(send);
+            if (answer == null || answer.trim().isEmpty()) throw new Exception("Poe chưa trả về câu trả lời.");
+            if (!returnPackage.isEmpty() && !returnPackage.equals("com.poe.android")) {
+                final String pkg = returnPackage;
+                new Handler(Looper.getMainLooper()).postDelayed(() -> returnToPackage(pkg), 250L);
+            }
+            postDebug("Đã đọc được câu trả lời từ Poe.");
+            return answer.trim();
+        } finally { poeBusy = false; }
+    }
 
-        postDebug("Đã gửi câu hỏi. Đang chờ câu trả lời...");
-        String answer = waitForChatGptAnswer(question, 90000L);
-        safeRecycle(composer);
-        if (answer == null || answer.trim().isEmpty()) {
-            throw new Exception("Đã gửi câu hỏi nhưng chưa đọc được câu trả lời từ ChatGPT.");
-        }
+    private String buildPoeQuestion(String instructions, String incoming) {
+        String p=instructions==null?"":instructions.trim(), q=incoming==null?"":incoming.trim();
+        if(p.isEmpty()) return q; if(q.isEmpty()) return p;
+        return p+"\n\nTin nhắn/câu hỏi cần xử lý:\n"+q;
+    }
 
-        if (!returnPackage.isEmpty() && !returnPackage.equals("com.openai.chatgpt")) {
-            final String pkg = returnPackage;
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
-                    () -> returnToPackage(pkg), 200L);
+    private void openPoe() throws Exception {
+        android.content.pm.PackageManager pm=getPackageManager();
+        try { pm.getPackageInfo("com.poe.android",0); }
+        catch(Exception e){ throw new Exception("Chưa cài ứng dụng Poe."); }
+        Handler main=new Handler(Looper.getMainLooper());
+        java.util.concurrent.CountDownLatch done=new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<Exception> error=new java.util.concurrent.atomic.AtomicReference<>();
+        main.post(() -> { try {
+            Intent launch=pm.getLaunchIntentForPackage("com.poe.android");
+            if(launch==null) throw new Exception("Không tìm thấy màn hình mở Poe.");
+            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            startActivity(launch); done.countDown();
+        } catch(Exception e){ error.set(e); done.countDown(); }});
+        if(!done.await(5,java.util.concurrent.TimeUnit.SECONDS)) throw new Exception("Hết thời gian mở Poe.");
+        if(error.get()!=null) throw error.get();
+    }
+
+    private boolean isPoeWindow(AccessibilityNodeInfo root){
+        return root!=null && root.getPackageName()!=null && "com.poe.android".contentEquals(root.getPackageName());
+    }
+
+    private AccessibilityNodeInfo waitForPoeRoot(long timeout) throws InterruptedException {
+        long end=System.currentTimeMillis()+timeout;
+        while(System.currentTimeMillis()<end){
+            AccessibilityNodeInfo r=getRootInActiveWindow();
+            if(isPoeWindow(r)) return r;
+            safeRecycle(r); Thread.sleep(250L);
         }
-        postDebug("Đã đọc được câu trả lời từ ChatGPT.");
-        return answer.trim();
+        return null;
+    }
+
+    private AccessibilityNodeInfo findPoeComposer(AccessibilityNodeInfo root){
+        if(root==null) return null;
+        AccessibilityNodeInfo e=findEditable(root);
+        if(e!=null) return e;
+        return null;
+    }
+
+    private AccessibilityNodeInfo waitForPoeComposer(long timeout) throws InterruptedException {
+        long end=System.currentTimeMillis()+timeout;
+        while(System.currentTimeMillis()<end){
+            AccessibilityNodeInfo r=getRootInActiveWindow();
+            if(isPoeWindow(r)){
+                AccessibilityNodeInfo e=findPoeComposer(r);
+                if(e!=null){ safeRecycle(r); return e; }
+            }
+            safeRecycle(r); Thread.sleep(250L);
+        }
+        return null;
+    }
+
+    private boolean setNodeTextAndVerifyPoe(AccessibilityNodeInfo node,String text,long timeout) throws InterruptedException {
+        if(node==null) return false;
+        node.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+        Bundle args=new Bundle();
+        args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,text);
+        long end=System.currentTimeMillis()+timeout;
+        while(System.currentTimeMillis()<end){
+            if(node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,args)){
+                Thread.sleep(150L);
+                String actual=normalize(value(node.getText()));
+                if(actual.equals(normalize(text))) return true;
+            }
+            Thread.sleep(200L);
+        }
+        return false;
+    }
+
+    private AccessibilityNodeInfo findPoeSendButton(AccessibilityNodeInfo root, AccessibilityNodeInfo composer){
+        if(root==null) return null;
+        String[] labels={"Send","Gửi","Submit"};
+        for(String label:labels){
+            java.util.List<AccessibilityNodeInfo> ns=root.findAccessibilityNodeInfosByText(label);
+            if(ns!=null) for(AccessibilityNodeInfo n:ns) if(n.isClickable()||n.getParent()!=null) return n;
+        }
+        return findClickableNearComposer(root,composer);
+    }
+
+    private String waitForPoeAnswer(String question,long timeout) throws InterruptedException {
+        String previous="";
+        long end=System.currentTimeMillis()+timeout;
+        while(System.currentTimeMillis()<end){
+            AccessibilityNodeInfo r=getRootInActiveWindow();
+            if(isPoeWindow(r)){
+                String a=extractPoeAnswer(r,question);
+                if(a.length()>0 && !normalize(a).equals(normalize(question))){
+                    if(a.equals(previous)) { safeRecycle(r); return a; }
+                    previous=a;
+                }
+            }
+            safeRecycle(r); Thread.sleep(600L);
+        }
+        return previous;
+    }
+
+    private String extractPoeAnswer(AccessibilityNodeInfo root,String question){
+        java.util.ArrayList<String> a=new java.util.ArrayList<>();
+        collectPoeText(root,a);
+        String best="";
+        for(String s:a){
+            if(s==null) continue; String x=s.trim();
+            if(x.length()<2||normalize(x).equals(normalize(question))) continue;
+            if(x.equalsIgnoreCase("send")||x.equalsIgnoreCase("gửi")||x.equalsIgnoreCase("ask")) continue;
+            if(x.length()>best.length()) best=x;
+        }
+        return best;
+    }
+
+    private void collectPoeText(AccessibilityNodeInfo n,java.util.List<String> out){
+        if(n==null) return;
+        CharSequence t=n.getText(); if(t!=null&&t.length()>0) out.add(t.toString());
+        for(int i=0;i<n.getChildCount();i++) collectPoeText(n.getChild(i),out);
     }
 
     private void openInstalledChatGpt() throws Exception {
