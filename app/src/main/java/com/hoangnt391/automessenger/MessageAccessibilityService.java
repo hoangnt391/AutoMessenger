@@ -460,20 +460,20 @@ public class MessageAccessibilityService extends AccessibilityService {
             final int d = Math.max(1, (int) getResources().getDisplayMetrics().density);
             ashnaLoginCloseButton = new android.widget.Button(getApplicationContext());
             ashnaLoginCloseButton.setText("✕");
-            ashnaLoginCloseButton.setTextSize(18f);
+            ashnaLoginCloseButton.setTextSize(15f);
             ashnaLoginCloseButton.setAllCaps(false);
             ashnaLoginCloseButton.setContentDescription("Đóng đăng nhập Ashna");
             ashnaLoginCloseButton.setOnClickListener(v -> hideAshnaWeb());
 
             android.view.WindowManager.LayoutParams p = new android.view.WindowManager.LayoutParams(
-                    56 * d, 56 * d,
+                    40 * d, 40 * d,
                     android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                     android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                             | android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                     android.graphics.PixelFormat.TRANSLUCENT);
             p.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
-            p.x = 8 * d;
-            p.y = 8 * d;
+            p.x = 6 * d;
+            p.y = 6 * d;
             ashnaWebWindowManager.addView(ashnaLoginCloseButton, p);
         } catch (Throwable e) {
             ashnaLoginCloseButton = null;
