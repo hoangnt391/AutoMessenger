@@ -286,10 +286,13 @@ public class MessageAccessibilityService extends AccessibilityService {
             return;
         }
 
-        android.content.Context hostContext = this;
+        android.content.Context hostContext = getApplicationContext();
         try {
+            // Use the service's WindowManager, but the application context for
+            // WebView itself. This avoids context/window-token mismatches on
+            // Android 11+ when the accessibility service is running headless.
             ashnaWebWindowManager = (android.view.WindowManager)
-                    hostContext.getSystemService(WINDOW_SERVICE);
+                    getSystemService(WINDOW_SERVICE);
             if (ashnaWebWindowManager == null) {
                 postDebug("LỖI Ashna WebView: không lấy được WindowManager của Trợ năng.");
                 return;
@@ -297,6 +300,7 @@ public class MessageAccessibilityService extends AccessibilityService {
 
             // Construct WebView with the AccessibilityService context, not an
             // artificial TYPE_ACCESSIBILITY_OVERLAY WindowContext.
+            android.webkit.WebView.setWebContentsDebuggingEnabled(false);
             ashnaHiddenWebView = new android.webkit.WebView(hostContext);
 
             android.webkit.WebSettings s = ashnaHiddenWebView.getSettings();
@@ -317,6 +321,7 @@ public class MessageAccessibilityService extends AccessibilityService {
 
             ashnaHiddenWebView.setBackgroundColor(android.graphics.Color.TRANSPARENT);
             ashnaHiddenWebView.setAlpha(0.01f);
+            ashnaHiddenWebView.setVisibility(android.view.View.VISIBLE);
             ashnaHiddenWebView.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
             ashnaHiddenWebView.setFocusable(false);
             ashnaHiddenWebView.setFocusableInTouchMode(false);
@@ -344,7 +349,16 @@ public class MessageAccessibilityService extends AccessibilityService {
             ashnaWebWindowParams.gravity = android.view.Gravity.TOP | android.view.Gravity.START;
 
             // The accessibility service is the owner of this window type.
-            ashnaWebWindowManager.addView(ashnaHiddenWebView, ashnaWebWindowParams);
+            // Add it only after the WebView is completely configured.
+            try {
+                ashnaWebWindowManager.addView(ashnaHiddenWebView, ashnaWebWindowParams);
+            } catch (android.view.WindowManager.BadTokenException e) {
+                throw new IllegalStateException("Không được cấp Accessibility Overlay. Hãy tắt/bật lại Trợ năng AutoMessenger.", e);
+            } catch (android.view.WindowManager.InvalidDisplayException e) {
+                throw new IllegalStateException("Màn hình hiện tại chưa sẵn sàng cho Accessibility Overlay.", e);
+            } catch (android.view.WindowManager.InvalidLayoutParamsException e) {
+                throw new IllegalStateException("Thông số cửa sổ WebView không hợp lệ.", e);
+            }
             postDebug("Ashna WebView: đã tạo engine chạy ngầm.");
         } catch (Throwable e) {
             if (ashnaHiddenWebView != null) {
