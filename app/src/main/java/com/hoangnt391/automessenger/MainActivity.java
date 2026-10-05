@@ -36,6 +36,7 @@ public class MainActivity extends Activity {
     private EditText ashnaKeyInput;
     private EditText ashnaModelInput;
     private TextView directResult;
+    private TextView errorLog;
     private String activePromptName = "Mặc định";
     private String activePromptText = DEFAULT_PROMPT;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -116,10 +117,21 @@ public class MainActivity extends Activity {
         aiCard.addView(ashnaKeyInput);
 
         ashnaModelInput = new EditText(this);
-        ashnaModelInput.setHint("Model ID, ví dụ: gpt-4o-mini");
+        ashnaModelInput.setHint("Model ID, ví dụ: gpt-6.1-sol");
         ashnaModelInput.setSingleLine(true);
-        ashnaModelInput.setText(p.getString("ashna_model", "gpt-4o-mini"));
+        ashnaModelInput.setText(p.getString("ashna_model", "gpt-6.1-sol"));
         aiCard.addView(ashnaModelInput);
+
+        errorLog = tv("Chưa có lỗi.", 13, 0xFF7A1F1F, false);
+        errorLog.setTextIsSelectable(true);
+        errorLog.setLongClickable(true);
+        errorLog.setPadding(14, 12, 14, 12);
+        errorLog.setBackground(roundBg(0xFFFFF1F1, 18));
+        aiCard.addView(errorLog);
+
+        Button copyError = button("📋 Sao chép lỗi");
+        copyError.setOnClickListener(v -> copyText(errorLog.getText().toString(), "Đã sao chép lỗi ✓"));
+        aiCard.addView(copyError);
 
         Button testAshna = button("🔌 Kiểm tra kết nối AshnaAI");
         testAshna.setOnClickListener(v -> testAshnaConnection());
@@ -354,20 +366,22 @@ public class MainActivity extends Activity {
 
     private void testAshnaConnection() {
         final String key = ashnaKeyInput == null ? "" : ashnaKeyInput.getText().toString().trim();
-        final String model = ashnaModelInput == null ? "gpt-4o-mini" : ashnaModelInput.getText().toString().trim();
+        final String model = ashnaModelInput == null ? "gpt-6.1-sol" : ashnaModelInput.getText().toString().trim();
         if (key.isEmpty()) {
             Toast.makeText(this, "Nhập AshnaAI API key trước", Toast.LENGTH_SHORT).show();
             return;
         }
         p.edit().putString("ashna_api_key", key)
-                .putString("ashna_model", model.isEmpty() ? "gpt-4o-mini" : model).apply();
+                .putString("ashna_model", model.isEmpty() ? "gpt-6.1-sol" : model).apply();
         Toast.makeText(this, "Đang kiểm tra AshnaAI...", Toast.LENGTH_SHORT).show();
         executor.execute(() -> {
             try {
                 AiClient.validateKey(key, model);
-                runOnUiThread(() -> Toast.makeText(this, "AshnaAI kết nối OK ✓", Toast.LENGTH_LONG).show());
+                runOnUiThread(() -> if (errorLog != null) errorLog.setText("✅ AshnaAI kết nối OK.");
+                    Toast.makeText(this, "AshnaAI kết nối OK ✓", Toast.LENGTH_LONG).show());
             } catch (Exception e) {
-                runOnUiThread(() -> Toast.makeText(this, "AshnaAI lỗi: " + e.getMessage(), Toast.LENGTH_LONG).show());
+                runOnUiThread(() -> if (errorLog != null) errorLog.setText("❌ AshnaAI lỗi:\n" + String.valueOf(e.getMessage()));
+                    Toast.makeText(this, "AshnaAI lỗi: " + e.getMessage(), Toast.LENGTH_LONG).show());
             }
         });
     }
@@ -397,7 +411,7 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> directResult.setText(answer == null || answer.trim().isEmpty()
                         ? "Không đọc được câu trả lời từ AshnaAI." : answer));
             } catch (Exception e) {
-                runOnUiThread(() -> directResult.setText("❌ Lỗi: " + e.getMessage()));
+                runOnUiThread(() -> { String err = "❌ Lỗi AshnaAI:\n" + String.valueOf(e.getMessage()); directResult.setText(err); if (errorLog != null) errorLog.setText(err); });
             }
         });
     }
