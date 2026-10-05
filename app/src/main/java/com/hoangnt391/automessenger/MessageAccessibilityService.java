@@ -588,6 +588,7 @@ public class MessageAccessibilityService extends AccessibilityService {
     }
 
     private String extractHiddenAnswer(String json, String question) {
+        // Loại disclaimer của Ashna khỏi mọi dạng câu trả lời, kể cả khi nó dính cùng một dòng.
         if (json == null || json.trim().isEmpty()) return null;
         try {
             org.json.JSONObject o = new org.json.JSONObject(json);
@@ -595,6 +596,7 @@ public class MessageAccessibilityService extends AccessibilityService {
             if (a != null) {
                 for (int i = a.length() - 1; i >= 0; i--) {
                     String x = a.optString(i, "").trim();
+                    x = removeAshnaDisclaimer(x);
                     if (x.length() >= 2 && !x.equals(question) && !isWebUiText(x)) return x;
                 }
             }
@@ -604,7 +606,7 @@ public class MessageAccessibilityService extends AccessibilityService {
                 String tail = body.substring(p + question.length()).trim();
                 String[] lines = tail.split("\\n+");                StringBuilder b = new StringBuilder();
                 for (String line : lines) {
-                    String x = line.trim();
+                    String x = removeAshnaDisclaimer(line.trim());
                     if (x.isEmpty() || isWebUiText(x)) continue;
                     if (b.length() > 0) b.append("\\n");
                     b.append(x);
@@ -614,6 +616,14 @@ public class MessageAccessibilityService extends AccessibilityService {
             }
         } catch (Exception ignored) {}
         return null;
+    }
+
+    private String removeAshnaDisclaimer(String text) {
+        if (text == null) return "";
+        String x = text.trim();
+        x = x.replaceAll("(?i)\\s*AshnaAI\\s+can\\s+make\\s+mistakes\\.?\\s*$", "");
+        x = x.replaceAll("(?i)\\s*AshnaAI\\s+can\\s+make\\s+mistakes\\.?", "");
+        return x.trim();
     }
 
     private String jsQuote(String value) {
