@@ -123,7 +123,9 @@ public class MainActivity extends Activity {
         directInput = new EditText(this);
         directInput.setHint("Ví dụ: Viết một câu trả lời...");
         directInput.setMinLines(3);
-        directInput.setGravity(Gravity.TOP);\n        directInput.setPadding((int)(14*density), (int)(12*density), (int)(14*density), (int)(12*density));\n        directInput.setBackground(roundBg(0xFFF1EEF4, 16 * density));
+        directInput.setGravity(Gravity.TOP);
+        directInput.setPadding((int)(14*density), (int)(12*density), (int)(14*density), (int)(12*density));
+        directInput.setBackground(roundBg(0xFFF1EEF4, 16 * density));
         directInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         chatCard.addView(directInput);
 
@@ -175,7 +177,9 @@ public class MainActivity extends Activity {
         settingsCard.addView(exit);
 
         Button save = button("LƯU & CHẠY");
-        save.setTextSize(15);\n        save.setTextColor(Color.WHITE);\n        save.setBackground(roundBg(0xFF6F42C1, 14 * density));
+        save.setTextSize(15);
+        save.setTextColor(Color.WHITE);
+        save.setBackground(roundBg(0xFF6F42C1, 14 * density));
         save.setOnClickListener(v -> saveAndApply());
         settingsCard.addView(save);
 
