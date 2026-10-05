@@ -354,16 +354,25 @@ public class MessageAccessibilityService extends AccessibilityService {
             });
 
             int d = Math.max(1, (int) getResources().getDisplayMetrics().density);
+            // Keep a real bottom margin so Android's navigation / Recent Apps / Home
+            // gestures and buttons are never covered by the accessibility overlay.
+            android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+            int screenW = dm.widthPixels;
+            int screenH = dm.heightPixels;
+            int bottomGap = Math.max(72 * d, screenH / 12);
+            int webW = Math.max(1, screenW - 24 * d);
+            int webH = Math.max(1, screenH - bottomGap - 24 * d);
+
             ashnaWebWindowParams = new android.view.WindowManager.LayoutParams(
-                    android.view.WindowManager.LayoutParams.MATCH_PARENT,
-                    android.view.WindowManager.LayoutParams.MATCH_PARENT,
+                    webW,
+                    webH,
                     android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                     android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                             | android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                             | android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                     android.graphics.PixelFormat.TRANSLUCENT);
-            ashnaWebWindowParams.gravity =
-                    android.view.Gravity.TOP | android.view.Gravity.START;
+            ashnaWebWindowParams.gravity = android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL;
+            ashnaWebWindowParams.y = 12 * d;
 
             ashnaWebWindowManager.addView(ashnaHiddenWebView, ashnaWebWindowParams);
             postDebug("Ashna WebView: đã tạo engine chạy ngầm.");
