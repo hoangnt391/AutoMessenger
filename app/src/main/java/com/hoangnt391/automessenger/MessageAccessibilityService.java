@@ -41,6 +41,7 @@ public class MessageAccessibilityService extends AccessibilityService {
     private android.view.WindowManager.LayoutParams ashnaWebWindowParams;
     private ReplyCallback ashnaWebCallback;
     private int ashnaLoginReadyChecks = 0;
+    private android.widget.Button ashnaLoginCloseButton;
 
     private void ensureDebugChannel() {
         if (android.os.Build.VERSION.SDK_INT >= 26) {
@@ -354,7 +355,8 @@ public class MessageAccessibilityService extends AccessibilityService {
 
             int d = Math.max(1, (int) getResources().getDisplayMetrics().density);
             ashnaWebWindowParams = new android.view.WindowManager.LayoutParams(
-                    360 * d, 640 * d,
+                    android.view.WindowManager.LayoutParams.MATCH_PARENT,
+                    android.view.WindowManager.LayoutParams.MATCH_PARENT,
                     android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                     android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                             | android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
@@ -410,13 +412,46 @@ public class MessageAccessibilityService extends AccessibilityService {
                     android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
             try { ashnaWebWindowManager.updateViewLayout(ashnaHiddenWebView, ashnaWebWindowParams); }
             catch (Exception ignored) {}
+            showAshnaLoginCloseButton();
             ashnaHiddenWebView.loadUrl("https://app.ashna.ai/chat?agent=gpt-6-sol");
-            postDebug("Ashna Web: đăng nhập đang mở. Chỉ tự ẩn sau khi xác nhận đăng nhập xong.");
+            postDebug("Ashna Web: đăng nhập đang mở. Có nút Đóng và WebView có thể cuộn/chạm bình thường.");
             monitorAshnaLogin(0);
         });
     }
 
+    private void showAshnaLoginCloseButton() {
+        if (ashnaWebWindowManager == null || ashnaLoginCloseButton != null) return;
+        try {
+            final int d = Math.max(1, (int) getResources().getDisplayMetrics().density);
+            ashnaLoginCloseButton = new android.widget.Button(getApplicationContext());
+            ashnaLoginCloseButton.setText("✕");
+            ashnaLoginCloseButton.setTextSize(18f);
+            ashnaLoginCloseButton.setAllCaps(false);
+            ashnaLoginCloseButton.setContentDescription("Đóng đăng nhập Ashna");
+            ashnaLoginCloseButton.setOnClickListener(v -> hideAshnaWeb());
+
+            android.view.WindowManager.LayoutParams p = new android.view.WindowManager.LayoutParams(
+                    56 * d, 56 * d,
+                    android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                    android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                            | android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                    android.graphics.PixelFormat.TRANSLUCENT);
+            p.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
+            p.x = 8 * d;
+            p.y = 8 * d;
+            ashnaWebWindowManager.addView(ashnaLoginCloseButton, p);
+        } catch (Throwable e) {
+            ashnaLoginCloseButton = null;
+            postDebug("LỖI tạo nút Đóng Ashna: " + shortError(e.getMessage()));
+        }
+    }
+
     private void hideAshnaWeb() {
+        if (ashnaLoginCloseButton != null && ashnaWebWindowManager != null) {
+            try { ashnaWebWindowManager.removeViewImmediate(ashnaLoginCloseButton); }
+            catch (Exception ignored) {}
+            ashnaLoginCloseButton = null;
+        }
         if (ashnaHiddenWebView == null || ashnaWebWindowManager == null) return;
         ashnaHiddenWebView.setAlpha(0.01f);
         ashnaWebWindowParams.flags =
@@ -850,6 +885,11 @@ public class MessageAccessibilityService extends AccessibilityService {
         debounceScheduler.shutdownNow();
         safeRecycle(lastInput);
         lastInput = null;
+        if (ashnaLoginCloseButton != null && ashnaWebWindowManager != null) {
+            try { ashnaWebWindowManager.removeViewImmediate(ashnaLoginCloseButton); }
+            catch (Exception ignored) {}
+            ashnaLoginCloseButton = null;
+        }
         if (ashnaHiddenWebView != null) {
             try {
                 if (ashnaWebWindowManager != null) ashnaWebWindowManager.removeView(ashnaHiddenWebView);
