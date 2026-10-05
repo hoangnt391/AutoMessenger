@@ -322,7 +322,7 @@ public class MessageAccessibilityService extends AccessibilityService {
 
         lines.sort((a, b) -> {
             if (a.top != b.top) return Integer.compare(a.top, b.top);
-            return Integer.compare(a.left, b.left);
+            return Float.compare(a.centerX, b.centerX);
         });
 
         List<String> compact = new ArrayList<>();
