@@ -33,6 +33,9 @@ public class MessageAccessibilityService extends AccessibilityService {
     private String lastIncoming = "";
     private String lastSent = "";
     private long lastReplyAt = 0L;
+    private volatile boolean ashnaWebBusy = false;
+    private String ashnaWebTargetPackage = "";
+    private String ashnaWebQuestion = "";
 
     private void ensureDebugChannel() {
         if (android.os.Build.VERSION.SDK_INT >= 26) {
