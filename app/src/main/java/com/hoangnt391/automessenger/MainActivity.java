@@ -37,6 +37,7 @@ public class MainActivity extends Activity {
     private EditText ashnaModelInput;
     private TextView directResult;
     private TextView errorLog;
+    private RadioGroup aiModeGroup;
     private String activePromptName = "Mặc định";
     private String activePromptText = DEFAULT_PROMPT;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -106,7 +107,20 @@ public class MainActivity extends Activity {
         // ===== ASHNAAI =====
         LinearLayout aiCard = card();
         aiCard.addView(tv("🤖 AshnaAI", 19, 0xFF27212E, true));
-        aiCard.addView(tv("Kết nối API trực tiếp, chạy nền không mở tab AI.", 13, 0xFF6F6878, false));
+        aiCard.addView(tv("Chọn nguồn AI. Web Free dùng AshnaAI trên trình duyệt; API chỉ dùng khi tài khoản có quyền External API.", 13, 0xFF6F6878, false));
+
+        aiModeGroup = new RadioGroup(this);
+        aiModeGroup.setOrientation(RadioGroup.VERTICAL);
+        RadioButton webMode = new RadioButton(this);
+        webMode.setText("🌐 Ashna Web Free (khuyến nghị)");
+        webMode.setId(10001);
+        RadioButton apiMode = new RadioButton(this);
+        apiMode.setText("🔌 Ashna API");
+        apiMode.setId(10002);
+        aiModeGroup.addView(webMode);
+        aiModeGroup.addView(apiMode);
+        aiModeGroup.check("api".equals(p.getString("ai_mode", "web")) ? 10002 : 10001);
+        aiCard.addView(aiModeGroup);
 
         ashnaKeyInput = new EditText(this);
         ashnaKeyInput.setHint("AshnaAI API key (sk-...)");
@@ -117,7 +131,7 @@ public class MainActivity extends Activity {
         aiCard.addView(ashnaKeyInput);
 
         ashnaModelInput = new EditText(this);
-        ashnaModelInput.setHint("Model ID, ví dụ: gpt-6.1-sol");
+        ashnaModelInput.setHint("Model ID, ví dụ: gpt-6-sol");
         ashnaModelInput.setSingleLine(true);
         ashnaModelInput.setText(p.getString("ashna_model", "gpt-6.1-sol"));
         aiCard.addView(ashnaModelInput);
@@ -413,7 +427,7 @@ public class MainActivity extends Activity {
         directResult.setText("🤖 Đang gửi câu hỏi sang AshnaAI...");
         executor.execute(() -> {
             try {
-                String answer = AiClient.reply(p.getString("ashna_api_key", ""), p.getString("ashna_model", "gpt-4o-mini"), "Trả lời trực tiếp câu hỏi của người dùng. " +
+                String answer = AiClient.reply(p.getString("ashna_api_key", ""), p.getString("ashna_model", "gpt-6-sol"), "Trả lời trực tiếp câu hỏi của người dùng. " +
                         "Không tự ý gửi câu trả lời sang người khác. Trả lời rõ ràng, hữu ích.", q);
                 runOnUiThread(() -> directResult.setText(answer == null || answer.trim().isEmpty()
                         ? "Không đọc được câu trả lời từ AshnaAI." : answer));
@@ -434,7 +448,7 @@ public class MainActivity extends Activity {
         status.setText("Trạng thái: " +
                 (MessageAccessibilityService.isRunning() ? "Trợ năng OK" : "Chưa bật Trợ năng") +
                 " • Prompt: " + activePromptName +
-                " • AI: AshnaAI API");
+                " • AI: " + ("api".equals(p.getString("ai_mode", "web")) ? "Ashna API" : "Ashna Web Free"));
     }
 
     private void saveAndApply() {
@@ -442,8 +456,10 @@ public class MainActivity extends Activity {
         boolean autoWant = auto.isChecked();
 
         String key = ashnaKeyInput == null ? "" : ashnaKeyInput.getText().toString().trim();
-        String model = ashnaModelInput == null ? "gpt-4o-mini" : ashnaModelInput.getText().toString().trim();
-        p.edit().putString("ashna_api_key", key).putString("ashna_model", model.isEmpty() ? "gpt-4o-mini" : model)
+        String model = ashnaModelInput == null ? "gpt-6-sol" : ashnaModelInput.getText().toString().trim();
+        String aiMode = aiModeGroup != null && aiModeGroup.getCheckedRadioButtonId() == 10002 ? "api" : "web";
+        p.edit().putString("ashna_api_key", key).putString("ashna_model", model.isEmpty() ? "gpt-6-sol" : model)
+                .putString("ai_mode", aiMode)
                 .putBoolean("enabled", want).putBoolean("auto", autoWant)
                 .putString("prompt", activePromptText).putString("active_prompt_name", activePromptName)
                 .putString("active_prompt_text", activePromptText).putBoolean("bubble_hidden", false).apply();
