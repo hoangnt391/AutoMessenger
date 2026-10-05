@@ -569,7 +569,7 @@ public class MessageAccessibilityService extends AccessibilityService {
                 + "var body=document.body?document.body.innerText:'';"
                 + "var lines=body.split(/\\n+/).map(function(x){return x.trim()}).filter(Boolean);"
                 + "var qi=-1;for(var i=lines.length-1;i>=0;i--){if(lines[i]===q){qi=i;break;}}"
-                + "var bad=/^(send|gửi|new chat|chat|settings|sign in|log in|copy|regenerate|stop|retry|model|agent|ashnaai can make mistakes|how can i help you today\?|input)$/i;"
+                + "var bad=/^(send|gửi|new chat|chat|settings|sign in|log in|copy|regenerate|stop|retry|model|agent|ashnaai can make mistakes|how can i help you today\\?|input)$/i;"
                 + "var cand=[];"
                 + "if(qi>=0){for(var j=qi+1;j<lines.length;j++){var t=lines[j];if(t===q||bad.test(t)||t.length<2||t.length>4000)continue;cand.push(t);}}"
                 + "if(!cand.length){var nodes=[].slice.call(document.querySelectorAll('[data-message-id],[data-message],[role=\"article\"],[data-testid*=\"message\"],[class*=\"message\"],[class*=\"Message\"]'));"
