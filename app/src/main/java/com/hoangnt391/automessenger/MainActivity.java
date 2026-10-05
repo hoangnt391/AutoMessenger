@@ -42,13 +42,14 @@ public class MainActivity extends Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(22, 18, 22, 22);
-        root.setBackgroundColor(Color.rgb(247,245,250));
+        final float density = getResources().getDisplayMetrics().density;
+        root.setPadding((int)(16*density), (int)(14*density), (int)(16*density), (int)(16*density));
+        root.setBackgroundColor(0xFFF6F3F8);
 
-        TextView title = tv("💬 AutoMessenger AI", 28, 0xFF4A2B72, true);
+        TextView title = tv("💬 AutoMessenger", 25, 0xFF2B2035, true);
         root.addView(title);
         TextView subtitle = tv("Bong bóng chat • Prompt • Chat AI trực tiếp", 14, 0xFF6F6878, false);
-        subtitle.setPadding(4, 2, 4, 14);
+        subtitle.setPadding((int)(4*density), (int)(2*density), (int)(4*density), (int)(12*density));
         root.addView(subtitle);
 
         ScrollView scroll = new ScrollView(this);
@@ -122,7 +123,7 @@ public class MainActivity extends Activity {
         directInput = new EditText(this);
         directInput.setHint("Ví dụ: Viết một câu trả lời...");
         directInput.setMinLines(3);
-        directInput.setGravity(Gravity.TOP);
+        directInput.setGravity(Gravity.TOP);\n        directInput.setPadding((int)(14*density), (int)(12*density), (int)(14*density), (int)(12*density));\n        directInput.setBackground(roundBg(0xFFF1EEF4, 16 * density));
         directInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         chatCard.addView(directInput);
 
@@ -174,7 +175,7 @@ public class MainActivity extends Activity {
         settingsCard.addView(exit);
 
         Button save = button("LƯU & CHẠY");
-        save.setTextSize(16);
+        save.setTextSize(15);\n        save.setTextColor(Color.WHITE);\n        save.setBackground(roundBg(0xFF6F42C1, 14 * density));
         save.setOnClickListener(v -> saveAndApply());
         settingsCard.addView(save);
 
@@ -204,10 +205,11 @@ public class MainActivity extends Activity {
     private LinearLayout card() {
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
-        c.setPadding(20, 16, 20, 20);
+        final float d = getResources().getDisplayMetrics().density;
+        c.setPadding((int)(16*d), (int)(14*d), (int)(16*d), (int)(16*d));
         c.setBackground(roundBg(Color.WHITE, 24));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.setMargins(0, 0, 0, 14);
+        lp.setMargins(0, 0, 0, (int)(12*d));
         c.setLayoutParams(lp);
         return c;
     }
