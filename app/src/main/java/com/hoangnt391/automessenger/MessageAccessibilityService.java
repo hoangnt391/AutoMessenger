@@ -263,22 +263,42 @@ public class MessageAccessibilityService extends AccessibilityService {
         });
     }
 
+    /**
+     * Creates Ashna WebView from the accessibility service itself.
+     *
+     * Important: TYPE_ACCESSIBILITY_OVERLAY is an accessibility-service window
+     * type. Do NOT create a TYPE_ACCESSIBILITY_OVERLAY window context on Android
+     * 11+; createWindowContext() is intended for supported application window
+     * types and can fail before WebView is even constructed. The service already
+     * owns the accessibility-overlay permission, so its own Context/WindowManager
+     * is the correct host.
+     *
+     * The WebView stays attached to this service while Messenger is foreground,
+     * but is made 1% transparent and non-touchable during normal operation.
+     * Login temporarily restores visibility/touch.
+     */
     private void ensureAshnaHiddenWebView() {
         if (ashnaHiddenWebView != null) return;
-        try {
-            android.content.Context windowContext = this;
-            if (android.os.Build.VERSION.SDK_INT >= 30) {
-                android.view.Display display = getDisplay();
-                if (display != null) {
-                    windowContext = createDisplayContext(display).createWindowContext(
-                            android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, null);
-                }
-            }
-            ashnaWebWindowManager = (android.view.WindowManager)
-                    windowContext.getSystemService(WINDOW_SERVICE);
-            if (ashnaWebWindowManager == null) return;
 
-            ashnaHiddenWebView = new android.webkit.WebView(windowContext);
+        // WebView must be created on the main thread.
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(this::ensureAshnaHiddenWebView);
+            return;
+        }
+
+        android.content.Context hostContext = this;
+        try {
+            ashnaWebWindowManager = (android.view.WindowManager)
+                    hostContext.getSystemService(WINDOW_SERVICE);
+            if (ashnaWebWindowManager == null) {
+                postDebug("LỖI Ashna WebView: không lấy được WindowManager của Trợ năng.");
+                return;
+            }
+
+            // Construct WebView with the AccessibilityService context, not an
+            // artificial TYPE_ACCESSIBILITY_OVERLAY WindowContext.
+            ashnaHiddenWebView = new android.webkit.WebView(hostContext);
+
             android.webkit.WebSettings s = ashnaHiddenWebView.getSettings();
             s.setJavaScriptEnabled(true);
             s.setDomStorageEnabled(true);
@@ -287,22 +307,33 @@ public class MessageAccessibilityService extends AccessibilityService {
             s.setJavaScriptCanOpenWindowsAutomatically(false);
             s.setSupportMultipleWindows(false);
             s.setMediaPlaybackRequiresUserGesture(true);
+            if (android.os.Build.VERSION.SDK_INT >= 21) {
+                s.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+            }
 
-            android.webkit.CookieManager.getInstance().setAcceptCookie(true);
-            android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(ashnaHiddenWebView, true);
+            android.webkit.CookieManager cookies = android.webkit.CookieManager.getInstance();
+            cookies.setAcceptCookie(true);
+            cookies.setAcceptThirdPartyCookies(ashnaHiddenWebView, true);
 
             ashnaHiddenWebView.setBackgroundColor(android.graphics.Color.TRANSPARENT);
             ashnaHiddenWebView.setAlpha(0.01f);
             ashnaHiddenWebView.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
+            ashnaHiddenWebView.setFocusable(false);
+            ashnaHiddenWebView.setFocusableInTouchMode(false);
             ashnaHiddenWebView.setWebViewClient(new android.webkit.WebViewClient() {
                 @Override public void onPageFinished(android.webkit.WebView view, String url) {
                     super.onPageFinished(view, url);
-                    android.webkit.CookieManager.getInstance().flush();
+                    try { android.webkit.CookieManager.getInstance().flush(); } catch (Exception ignored) {}
                     postDebug("Ashna Web: trang đã tải.");
+                }
+
+                @Override public void onReceivedError(android.webkit.WebView view,
+                        int errorCode, String description, String failingUrl) {
+                    postDebug("LỖI Ashna Web: " + shortError(description));
                 }
             });
 
-            int d = Math.max(1, (int)getResources().getDisplayMetrics().density);
+            int d = Math.max(1, (int) getResources().getDisplayMetrics().density);
             ashnaWebWindowParams = new android.view.WindowManager.LayoutParams(
                     360 * d, 640 * d,
                     android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
@@ -311,10 +342,20 @@ public class MessageAccessibilityService extends AccessibilityService {
                             | android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                     android.graphics.PixelFormat.TRANSLUCENT);
             ashnaWebWindowParams.gravity = android.view.Gravity.TOP | android.view.Gravity.START;
+
+            // The accessibility service is the owner of this window type.
             ashnaWebWindowManager.addView(ashnaHiddenWebView, ashnaWebWindowParams);
-        } catch (Exception e) {
+            postDebug("Ashna WebView: đã tạo engine chạy ngầm.");
+        } catch (Throwable e) {
+            if (ashnaHiddenWebView != null) {
+                try { ashnaHiddenWebView.stopLoading(); } catch (Exception ignored) {}
+                try { ashnaHiddenWebView.destroy(); } catch (Exception ignored) {}
+            }
             ashnaHiddenWebView = null;
-            postDebug("LỖI Ashna WebView: " + shortError(e.getMessage()));
+            ashnaWebWindowParams = null;
+            ashnaWebWindowManager = null;
+            String detail = e.getClass().getSimpleName() + ": " + shortError(e.getMessage());
+            postDebug("LỖI tạo Ashna WebView: " + detail);
         }
     }
 
