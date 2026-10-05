@@ -45,6 +45,8 @@ public class MessageAccessibilityService extends AccessibilityService {
     private android.widget.Button ashnaLoginCloseButton;
     private String ashnaLastCandidate = "";
     private int ashnaStableCandidateChecks = 0;
+    private String ashnaBaselineBody = "";
+    private String ashnaConversationContext = "";
 
     private void ensureDebugChannel() {
         if (android.os.Build.VERSION.SDK_INT >= 26) {
@@ -207,6 +209,9 @@ public class MessageAccessibilityService extends AccessibilityService {
             return;
         }
         String incoming = extractLatestMessage(root, event);
+        if (incoming != null && !incoming.trim().isEmpty()) {
+            ashnaConversationContext = buildRecentConversationContext(root, incoming.trim());
+        }
         safeRecycle(root);
         if (incoming == null || incoming.trim().isEmpty()) return;
         incoming = incoming.trim();
@@ -223,6 +228,10 @@ public class MessageAccessibilityService extends AccessibilityService {
         ashnaWebTargetPackage = value(current == null ? null : current.getPackageName());
         safeRecycle(current);
         ashnaWebQuestion = incoming;
+        AccessibilityNodeInfo contextRoot = getRootInActiveWindow();
+        String liveContext = buildRecentConversationContext(contextRoot, incoming);
+        if (!liveContext.isEmpty()) ashnaConversationContext = liveContext;
+        safeRecycle(contextRoot);
         postDebug("Ashna Web Free: xử lý ngầm...");
         openAshnaWebAndAsk(incoming);
     }
@@ -249,7 +258,7 @@ public class MessageAccessibilityService extends AccessibilityService {
     public void requestAshnaWebReply(final String question, final ReplyCallback callback) {
         if (question == null || question.trim().isEmpty() || callback == null) return;
         final String originalQuestion = question.trim();
-        final String aiInstruction = buildAshnaInstruction(originalQuestion);
+        final String aiInstruction = buildAshnaInstruction(originalQuestion, ashnaConversationContext);
         new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
             if (ashnaWebBusy) {
                 callback.onReply(originalQuestion, null, "Ashna Web đang xử lý một câu hỏi khác.");
@@ -261,6 +270,7 @@ public class MessageAccessibilityService extends AccessibilityService {
             ashnaWebCallback = callback;
             ashnaLastCandidate = "";
             ashnaStableCandidateChecks = 0;
+            ashnaBaselineBody = "";
             ensureAshnaHiddenWebView();
             if (ashnaHiddenWebView == null) {
                 finishAshnaWeb(null, "Không tạo được WebView Ashna chạy ngầm.");
@@ -274,12 +284,11 @@ public class MessageAccessibilityService extends AccessibilityService {
     }
 
     /** Chỉ dẫn nội bộ: biến tin nhắn đầu vào thành câu trả lời tự nhiên trong đúng vai trò người đang trò chuyện. */
-    private String buildAshnaInstruction(String question) {
+    private String buildAshnaInstruction(String question, String conversationContext) {
         String userStyle = getSharedPreferences("AutoMessenger", 0)
                 .getString("active_prompt_text", "")
                 .trim();
 
-        // Không để prompt cũ chứa cả bộ luật nội bộ bị lồng lại vào prompt mới.
         if (userStyle.startsWith("Hãy tiếp tục cuộc trò chuyện")
                 || userStyle.contains("Tin nhắn mới cần đáp lại:")
                 || userStyle.contains("Không nhắc đến AI, bot, mô hình")) {
@@ -287,20 +296,88 @@ public class MessageAccessibilityService extends AccessibilityService {
         }
 
         StringBuilder b = new StringBuilder();
-        b.append("Bạn đang đóng vai người nhận tin nhắn và phải NHẮN LẠI cho người kia. ");
-        b.append("Đừng trả lời như trợ lý đang giải bài, đừng giải thích yêu cầu. Hãy đọc câu cuối cùng và nói đúng câu mà một người thật sẽ nhắn lại. ");
-        b.append("Với câu hỏi đời thường, hãy trả lời trực tiếp câu hỏi đó từ góc nhìn của người đang nhắn tin. ");
-        b.append("Ví dụ: 'Anh đang làm gì thế' -> 'Anh đang làm việc nè, còn em?' hoặc một câu tự nhiên tương tự. ");
-        b.append("Với câu trêu như 'ai cho nhớ mà nhớ' -> có thể đáp 'Chẳng ai cho cả, tự nhiên nhớ thì biết làm sao 😌' hoặc một câu trêu lại tương tự. ");
-        b.append("Không lặp lại nguyên câu của người kia. Không hỏi lại một cách máy móc. Không phân tích, không giải thích, không nói về AI/bot/prompt/công cụ. QUAN TRỌNG: chỉ xuất đúng nội dung tin nhắn sẽ gửi cho người kia, không thêm tiêu đề, lời dẫn, chú thích, dấu ngoặc kép hay phần giải thích nào khác. ");
-        b.append("Giữ đúng ngôn ngữ của tin nhắn. Trả lời ngắn gọn vừa đủ như tin nhắn thật; chỉ dài và có cấu trúc khi người kia thực sự yêu cầu tra cứu, tìm kiếm, tổng hợp hoặc giải quyết một vấn đề. ");
-        b.append("Nếu đang tán tỉnh hoặc đùa vui, được phép đáp lại có duyên, hơi trêu và thả thính nhẹ nhưng không ép buộc.\n");
+        b.append("Bạn đang nhắn tin thay cho một người thật trong một cuộc trò chuyện đang diễn ra. ");
+        b.append("Hãy đọc NGỮ CẢNH gần đây trước rồi mới trả lời tin nhắn mới. Đừng xử lý câu cuối như một câu hỏi độc lập nếu ngữ cảnh cho thấy nó đang tiếp nối chuyện trước. ");
+        b.append("Mục tiêu là một câu trả lời giống người thật nhắn cho bạn bè/người quen: tự nhiên, có cảm xúc phù hợp, có thể đùa hoặc trêu lại khi hợp cảnh, nhưng không cố tỏ ra dễ thương hay thả thính ở mọi câu. ");
+        b.append("Nếu người kia hỏi chuyện đời thường, trả lời trực tiếp từ góc nhìn của người đang nhắn. Nếu họ nói ngắn như 'ừ', 'haha', 'ok' thì cũng chỉ cần đáp ngắn và tự nhiên. Nếu họ buồn, giận hoặc kể chuyện khó chịu thì phản hồi có sự đồng cảm. Nếu họ đổi chủ đề thì theo chủ đề mới. ");
+        b.append("Không lặp lại nguyên văn tin nhắn của người kia. Không hỏi lại máy móc. Không biến câu trả lời thành văn bản hỗ trợ khách hàng, bài giải hay danh sách. Không nhắc đến AI, bot, mô hình, prompt hoặc công cụ. ");
+        b.append("Quan trọng nhất: chỉ xuất đúng nội dung tin nhắn sẽ gửi cho người kia, không thêm tiêu đề, lời dẫn, dấu ngoặc kép, phân tích hay chú thích. Giữ đúng ngôn ngữ của cuộc trò chuyện. Độ dài phải tự nhiên với ngữ cảnh; không tự nhiên viết dài chỉ vì có thể viết dài.\n");
         if (!userStyle.isEmpty()) {
-            b.append("Phong cách: ").append(userStyle).append("\n");
+            b.append("Phong cách người dùng mong muốn: ").append(userStyle).append("\n");
         }
-        b.append("Tin nhắn của người kia:\n").append(question);
+        if (conversationContext != null && !conversationContext.trim().isEmpty()) {
+            b.append("\nĐoạn hội thoại gần đây (chỉ dùng để hiểu ngữ cảnh):\n");
+            b.append(conversationContext.trim()).append("\n");
+        }
+        b.append("\nTin nhắn mới nhất cần trả lời (ưu tiên trả lời tin này):\n");
+        b.append(question);
         return b.toString();
     }
+
+    private String buildRecentConversationContext(AccessibilityNodeInfo root, String latestIncoming) {
+        if (root == null) return "";
+        List<ConversationLine> lines = new ArrayList<>();
+        collectConversationLines(root, lines);
+        if (lines.isEmpty()) return "";
+
+        lines.sort((a, b) -> {
+            if (a.top != b.top) return Integer.compare(a.top, b.top);
+            return Integer.compare(a.left, b.left);
+        });
+
+        List<String> compact = new ArrayList<>();
+        String previous = "";
+        for (ConversationLine line : lines) {
+            String text = normalize(line.text);
+            if (text.isEmpty() || text.equals(previous)) continue;
+            previous = text;
+            String role = line.outgoing ? "Mình" : "Người kia";
+            String item = role + ": " + text;
+            if (compact.isEmpty() || !compact.get(compact.size() - 1).equals(item)) compact.add(item);
+        }
+
+        int from = Math.max(0, compact.size() - 12);
+        StringBuilder out = new StringBuilder();
+        for (int i = from; i < compact.size(); i++) {
+            if (out.length() > 0) out.append("\n");
+            out.append(compact.get(i));
+        }
+        String result = out.toString();
+        return result.length() > 6000 ? result.substring(result.length() - 6000) : result;
+    }
+
+    private void collectConversationLines(AccessibilityNodeInfo node, List<ConversationLine> out) {
+        if (node == null || out == null) return;
+        String text = value(node.getText()).trim();
+        String cls = value(node.getClassName()).toLowerCase(Locale.ROOT);
+        if (node.isVisibleToUser() && !node.isEditable() && !text.isEmpty()
+                && text.length() <= 1200 && cls.contains("textview")
+                && !isUiText(text)) {
+            Rect r = new Rect();
+            node.getBoundsInScreen(r);
+            if (r.width() > 0 && r.height() > 0 && r.top > 80) {
+                out.add(new ConversationLine(text, (r.left + r.right) / 2f,
+                        r.top, isLikelyOutgoing(node)));
+            }
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            collectConversationLines(node.getChild(i), out);
+        }
+    }
+
+    private static final class ConversationLine {
+        final String text;
+        final float centerX;
+        final int top;
+        final boolean outgoing;
+        ConversationLine(String text, float centerX, int top, boolean outgoing) {
+            this.text = text;
+            this.centerX = centerX;
+            this.top = top;
+            this.outgoing = outgoing;
+        }
+    }
+
     /**
      * Creates Ashna WebView from the accessibility service itself.
      *
@@ -565,6 +642,7 @@ public class MessageAccessibilityService extends AccessibilityService {
                 + "var input=els.sort(function(a,b){return b.getBoundingClientRect().bottom-a.getBoundingClientRect().bottom})[0];"
                 + "if(login&&!input)return 'LOGIN';if(!input)return 'NO_INPUT';"
                 + "var q=" + jsQuote(question) + ";"
+                + "var baseline=document.body?document.body.innerText:'';"
                 + "try{input.focus();if(input.isContentEditable){input.innerText=q;}else{"
                 + "var proto=input.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;"
                 + "var d=Object.getOwnPropertyDescriptor(proto,'value');if(d&&d.set)d.set.call(input,q);else input.value=q;}"
@@ -572,10 +650,10 @@ public class MessageAccessibilityService extends AccessibilityService {
                 + "var bs=[].slice.call(document.querySelectorAll('button,[role=\"button\"],input[type=\"submit\"]'));"
                 + "var b=bs.filter(function(x){var z=((x.innerText||'')+' '+(x.getAttribute('aria-label')||'')+' '+(x.getAttribute('title')||'')+' '+(x.getAttribute('data-testid')||'')).toLowerCase();"
                 + "return vis(x)&&/send|gửi|submit|arrow.?up|paper.?plane/.test(z)})[0];"
-                + "if(b){b.click();return 'SENT';}"
+                + "if(b){b.click();return JSON.stringify({state:'SENT',baseline:baseline});}"
                 + "input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true}));"
                 + "input.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true}));"
-                + "return 'ENTER';}catch(e){return 'ERR:'+e.message;}})();";
+                + "return JSON.stringify({state:'ENTER',baseline:baseline});}catch(e){return 'ERR:'+e.message;}})();";
 
         ashnaHiddenWebView.evaluateJavascript(js, result -> {
             String state = decodeJsString(result);
@@ -583,11 +661,18 @@ public class MessageAccessibilityService extends AccessibilityService {
                 finishAshnaWeb(null, "Ashna Web chưa đăng nhập trong AutoMessenger. Bấm 'Đăng nhập Ashna' trong bong bóng AI và đăng nhập 1 lần.");
                 return;
             }
-            if ("SENT".equals(state) || "ENTER".equals(state)) {
-                postDebug("Ashna Web: đã gửi ngầm, chờ câu trả lời...");
-                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
-                        () -> pollHiddenAshnaAnswer(question, 0), 1800L);
-                return;
+            if (state.startsWith("{")) {
+                try {
+                    org.json.JSONObject o = new org.json.JSONObject(state);
+                    String status = o.optString("state", "");
+                    if ("SENT".equals(status) || "ENTER".equals(status)) {
+                        ashnaBaselineBody = o.optString("baseline", "");
+                        postDebug("Ashna Web: đã gửi ngầm, chờ câu trả lời...");
+                        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                                () -> pollHiddenAshnaAnswer(question, 0), 1800L);
+                        return;
+                    }
+                } catch (Exception ignored) {}
             }
             new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
                     () -> driveHiddenAshnaWeb(question, attempt + 1), 700L);
@@ -607,11 +692,13 @@ public class MessageAccessibilityService extends AccessibilityService {
                 + "var submitted=" + jsQuote(ashnaSubmittedInstruction) + ";"
                 + "var qi=-1;for(var i=lines.length-1;i>=0;i--){if(submitted&&lines[i]===submitted){qi=i;break;}}"
                 + "if(qi<0){for(var i=lines.length-1;i>=0;i--){if(lines[i]===q){qi=i;break;}}}"
+                + "var baseline=" + jsQuote(ashnaBaselineBody) + ";"
+                + "var oldLines={};baseline.split(/\\n+/).forEach(function(x){x=x.trim();if(x)oldLines[x]=1;});"
                 + "var bad=/^(send|gửi|new chat|chat|settings|sign in|log in|copy|regenerate|stop|retry|model|agent|input|thinking|thought|thinking\\.{0,3}|generating(?:\\.{0,3})?|show more|show less|gpt\\s*6\\s*sol|ashnaai(?:\\s+can\\s+make\\s+mistakes)?|how can i help you today\\?)$/i;"
                 + "var cand=[];"
-                + "if(qi>=0){for(var j=qi+1;j<lines.length;j++){var t=lines[j];var low=t.toLowerCase();if(t===q||bad.test(t)||t.length<2||t.length>4000||low.indexOf('bạn đang đóng vai người nhận tin nhắn')>=0||low.indexOf('tin nhắn của người kia')>=0||low.indexOf('không phân tích, không giải thích')>=0||low.indexOf('chỉ xuất đúng nội dung tin nhắn')>=0)continue;cand.push(t);}}"
+                + "if(qi>=0){for(var j=qi+1;j<lines.length;j++){var t=lines[j];var low=t.toLowerCase();if(t===q||oldLines[t]||bad.test(t)||t.length<2||t.length>4000||low.indexOf('bạn đang đóng vai người nhận tin nhắn')>=0||low.indexOf('tin nhắn của người kia')>=0||low.indexOf('không phân tích, không giải thích')>=0||low.indexOf('chỉ xuất đúng nội dung tin nhắn')>=0)continue;cand.push(t);}}"
                 + "if(!cand.length){var nodes=[].slice.call(document.querySelectorAll('[data-message-id],[data-message],[role=\"article\"],[data-testid*=\"message\"],[class*=\"message\"],[class*=\"Message\"]'));"
-                + "nodes.forEach(function(n){var t=(n.innerText||'').trim();var low=t.toLowerCase();if(t&&t!==q&&t.length>=2&&t.length<4000&&!bad.test(t)&&low.indexOf('bạn đang đóng vai người nhận tin nhắn')<0&&low.indexOf('tin nhắn của người kia')<0&&low.indexOf('không phân tích, không giải thích')<0&&low.indexOf('chỉ xuất đúng nội dung tin nhắn')<0)cand.push(t);});}"
+                + "nodes.forEach(function(n){var t=(n.innerText||'').trim();var low=t.toLowerCase();if(t&&t!==q&&!oldLines[t]&&t.length>=2&&t.length<4000&&!bad.test(t)&&low.indexOf('bạn đang đóng vai người nhận tin nhắn')<0&&low.indexOf('tin nhắn của người kia')<0&&low.indexOf('không phân tích, không giải thích')<0&&low.indexOf('chỉ xuất đúng nội dung tin nhắn')<0)cand.push(t);});}"
                 + "return JSON.stringify({body:body,candidates:cand.slice(-8)});})();";
 
         ashnaHiddenWebView.evaluateJavascript(js, result -> {
