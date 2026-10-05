@@ -9,7 +9,6 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -19,7 +18,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class MessageAccessibilityService extends AccessibilityService {
-    private static final String POE_PACKAGE = "com.poe.android";
     private static final String DEBUG_CHANNEL = "automessenger_debug";
     private static MessageAccessibilityService instance;
 
@@ -32,8 +30,6 @@ public class MessageAccessibilityService extends AccessibilityService {
     private long lastQueuedAt = 0L;
     private AccessibilityNodeInfo lastInput;
     private volatile boolean replying = false;
-    private volatile boolean poeBusy = false;
-    private volatile boolean poeStarted = false;
     private String lastIncoming = "";
     private String lastSent = "";
     private long lastReplyAt = 0L;
@@ -59,7 +55,7 @@ public class MessageAccessibilityService extends AccessibilityService {
                                 ? new android.app.Notification.Builder(this, DEBUG_CHANNEL)
                                 : new android.app.Notification.Builder(this);
                 b.setSmallIcon(android.R.drawable.ic_dialog_info)
-                        .setContentTitle("AutoMessenger • Poe")
+                        .setContentTitle("AutoMessenger • AshnaAI")
                         .setContentText(message)
                         .setAutoCancel(true);
                 android.app.NotificationManager nm =
@@ -186,7 +182,7 @@ public class MessageAccessibilityService extends AccessibilityService {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null || root.getPackageName() == null) return;
 
-        // Never inspect Settings, Poe, launcher, permission screens, etc.
+        // Never inspect Settings, launcher, permission screens, etc.
         // This is the main guard against the old "nhảy loạn tap" behaviour.
         String pkg = root.getPackageName().toString();
         if (!isSupportedChatPackage(pkg)) {
@@ -214,7 +210,7 @@ public class MessageAccessibilityService extends AccessibilityService {
 
     private void generateAndSend(final String incoming) {
         replying = true;
-        postDebug("Đang xử lý bằng Poe...");
+        postDebug("Đang xử lý bằng AshnaAI...");
         worker.execute(() -> {
             try {
                 android.content.SharedPreferences p =
@@ -224,7 +220,7 @@ public class MessageAccessibilityService extends AccessibilityService {
                         "Chỉ trả về đúng nội dung tin nhắn cần gửi. Không giải thích, không nói bạn là AI. " +
                         "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. Không markdown.");
 
-                String reply = AiClient.reply("", "poe", prompt, incoming);
+                String reply = AiClient.reply(p.getString("ashna_api_key", ""), p.getString("ashna_model", "gpt-4o-mini"), prompt, incoming);
                 if (reply != null && !reply.trim().isEmpty()) {
                     final String answer = reply.trim();
                     AutoMessengerService.setLastConversation(incoming, answer);
@@ -237,7 +233,7 @@ public class MessageAccessibilityService extends AccessibilityService {
                     });
                 }
             } catch (Exception e) {
-                String message = e.getMessage() == null ? "Lỗi Poe không xác định" : e.getMessage();
+                String message = e.getMessage() == null ? "Lỗi AshnaAI không xác định" : e.getMessage();
                 postDebug("LỖI: " + shortError(message));
                 new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
                         android.widget.Toast.makeText(this,
@@ -248,271 +244,6 @@ public class MessageAccessibilityService extends AccessibilityService {
                         () -> replying = false, 1000L);
             }
         });
-    }
-
-    /**
-     * Poe is opened programmatically only when needed. The same Poe activity is
-     * brought to the foreground with REORDER_TO_FRONT; no new Poe activity/session
-     * is spawned for every message.
-     */
-    public String requestPoeReply(String instructions, String incoming) throws Exception {
-        if (poeBusy) throw new Exception("Poe đang xử lý yêu cầu trước.");
-        poeBusy = true;
-        try {
-            String question = buildPoeQuestion(instructions, incoming);
-            if (question.isEmpty()) throw new IllegalArgumentException("Câu hỏi trống.");
-
-            String returnPackage = currentPackage();
-            ensurePoeForeground();
-
-            AccessibilityNodeInfo composer = waitForPoeComposer(15000L);
-            if (composer == null) throw new Exception("Không tìm thấy ô nhập Poe.");
-
-            try {
-                if (!setNodeTextAndVerifyPoe(composer, question, 4000L)) {
-                    throw new Exception("Poe không nhận được câu hỏi.");
-                }
-
-                AccessibilityNodeInfo fresh = getRootInActiveWindow();
-                AccessibilityNodeInfo send = findPoeSendButton(fresh, composer);
-                safeRecycle(fresh);
-
-                if (send == null || !clickNodeOrParent(send)) {
-                    safeRecycle(send);
-                    throw new Exception("Không tìm thấy nút Gửi của Poe.");
-                }
-                safeRecycle(send);
-
-                postDebug("Đã gửi sang Poe. Đang chờ câu trả lời...");
-                String answer = waitForPoeAnswer(question, 90000L);
-                if (answer == null || answer.trim().isEmpty()) {
-                    throw new Exception("Poe chưa trả về câu trả lời.");
-                }
-
-                if (!returnPackage.isEmpty() && isSupportedChatPackage(returnPackage)) {
-                    final String pkg = returnPackage;
-                    new android.os.Handler(android.os.Looper.getMainLooper())
-                            .postDelayed(() -> returnToPackage(pkg), 150L);
-                }
-                return answer.trim();
-            } finally {
-                safeRecycle(composer);
-            }
-        } finally {
-            poeBusy = false;
-        }
-    }
-
-    private String currentPackage() {
-        AccessibilityNodeInfo root = getRootInActiveWindow();
-        String pkg = root == null || root.getPackageName() == null
-                ? "" : root.getPackageName().toString();
-        safeRecycle(root);
-        return pkg;
-    }
-
-    private void ensurePoeForeground() throws Exception {
-        AccessibilityNodeInfo root = getRootInActiveWindow();
-        if (isPoeWindow(root)) {
-            safeRecycle(root);
-            poeStarted = true;
-            return;
-        }
-        safeRecycle(root);
-
-        android.content.pm.PackageManager pm = getPackageManager();
-        try {
-            pm.getPackageInfo(POE_PACKAGE, 0);
-        } catch (Exception e) {
-            throw new Exception("Chưa cài ứng dụng Poe.");
-        }
-
-        android.content.Intent launch = pm.getLaunchIntentForPackage(POE_PACKAGE);
-        if (launch == null) throw new Exception("Không tìm thấy màn hình mở Poe.");
-
-        CountDownLatch done = new CountDownLatch(1);
-        AtomicReference<Exception> error = new AtomicReference<>();
-        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
-            try {
-                launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-                        | android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-                startActivity(launch);
-            } catch (Exception e) {
-                error.set(e);
-            } finally {
-                done.countDown();
-            }
-        });
-
-        if (!done.await(5, TimeUnit.SECONDS)) throw new Exception("Hết thời gian mở Poe.");
-        if (error.get() != null) throw error.get();
-        poeStarted = true;
-    }
-
-    private String buildPoeQuestion(String instructions, String incoming) {
-        String p = instructions == null ? "" : instructions.trim();
-        String q = incoming == null ? "" : incoming.trim();
-        if (p.isEmpty()) return q;
-        if (q.isEmpty()) return p;
-        return p + "\n\nTin nhắn/câu hỏi cần xử lý:\n" + q;
-    }
-
-    private boolean isPoeWindow(AccessibilityNodeInfo root) {
-        return root != null && root.getPackageName() != null
-                && POE_PACKAGE.equals(root.getPackageName().toString());
-    }
-
-    private AccessibilityNodeInfo waitForPoeComposer(long timeout) throws InterruptedException {
-        long end = System.currentTimeMillis() + timeout;
-        while (System.currentTimeMillis() < end) {
-            AccessibilityNodeInfo root = getRootInActiveWindow();
-            if (isPoeWindow(root)) {
-                AccessibilityNodeInfo e = findPoeComposer(root);
-                if (e != null) {
-                    safeRecycle(root);
-                    return e;
-                }
-            }
-            safeRecycle(root);
-            Thread.sleep(250L);
-        }
-        return null;
-    }
-
-    private AccessibilityNodeInfo findPoeComposer(AccessibilityNodeInfo root) {
-        if (root == null) return null;
-        return findEditable(root);
-    }
-
-    private boolean setNodeTextAndVerifyPoe(AccessibilityNodeInfo node, String text, long timeout)
-            throws InterruptedException {
-        if (node == null) return false;
-        node.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
-        Bundle args = new Bundle();
-        args.putCharSequence(
-                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text);
-        long end = System.currentTimeMillis() + timeout;
-        while (System.currentTimeMillis() < end) {
-            if (node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
-                Thread.sleep(150L);
-                String actual = normalize(value(node.getText()));
-                if (actual.equals(normalize(text))) return true;
-            }
-            Thread.sleep(200L);
-        }
-        return false;
-    }
-
-    private AccessibilityNodeInfo findPoeSendButton(
-            AccessibilityNodeInfo root, AccessibilityNodeInfo composer) {
-        if (root == null) return null;
-
-        List<AccessibilityNodeInfo> nodes = new ArrayList<>();
-        collectClickableNodes(root, nodes);
-        Rect cr = new Rect();
-        if (composer != null) composer.getBoundsInScreen(cr);
-
-        AccessibilityNodeInfo best = null;
-        int bestScore = Integer.MIN_VALUE;
-        for (AccessibilityNodeInfo n : nodes) {
-            String all = (value(n.getText()) + " " + value(n.getContentDescription()) + " "
-                    + value(n.getViewIdResourceName())).toLowerCase(Locale.ROOT);
-            Rect r = new Rect();
-            n.getBoundsInScreen(r);
-            int score = 0;
-            if (all.contains("send") || all.contains("gửi") || all.contains("submit")) score += 10000;
-            if (all.contains("ask")) score += 7000;
-            if (all.contains("stop") || all.contains("cancel")) score -= 20000;
-            if (r.bottom >= cr.top - 100 && r.top <= cr.bottom + 100) score += 3000;
-            score -= Math.abs(r.centerY() - cr.centerY());
-
-            if (score > bestScore) {
-                safeRecycle(best);
-                best = n;
-                bestScore = score;
-            } else {
-                safeRecycle(n);
-            }
-        }
-        return bestScore > 0 ? best : null;
-    }
-
-    private void collectClickableNodes(AccessibilityNodeInfo node, List<AccessibilityNodeInfo> out) {
-        if (node == null) return;
-        if (node.isVisibleToUser() && node.isClickable()) {
-            out.add(AccessibilityNodeInfo.obtain(node));
-        }
-        for (int i = 0; i < node.getChildCount(); i++) {
-            collectClickableNodes(node.getChild(i), out);
-        }
-    }
-
-    private String waitForPoeAnswer(String question, long timeout) throws InterruptedException {
-        String previous = "";
-        long end = System.currentTimeMillis() + timeout;
-        while (System.currentTimeMillis() < end) {
-            AccessibilityNodeInfo root = getRootInActiveWindow();
-            if (isPoeWindow(root)) {
-                String answer = extractPoeAnswer(root, question);
-                if (!answer.isEmpty() && !normalize(answer).equals(normalize(question))) {
-                    if (answer.equals(previous)) {
-                        safeRecycle(root);
-                        return answer;
-                    }
-                    previous = answer;
-                }
-            }
-            safeRecycle(root);
-            Thread.sleep(600L);
-        }
-        return previous;
-    }
-
-    private String extractPoeAnswer(AccessibilityNodeInfo root, String question) {
-        List<String> texts = new ArrayList<>();
-        collectPoeText(root, texts);
-
-        String best = "";
-        String nq = normalize(question);
-        for (String raw : texts) {
-            String x = raw == null ? "" : raw.trim();
-            String nx = normalize(x);
-            if (nx.length() < 2 || nx.equals(nq)) continue;
-            if (isPoeUiText(nx)) continue;
-            if (x.length() > best.length()) best = x;
-        }
-        return best.trim();
-    }
-
-    private void collectPoeText(AccessibilityNodeInfo node, List<String> out) {
-        if (node == null) return;
-        if (node.isVisibleToUser() && !node.isEditable()) {
-            CharSequence t = node.getText();
-            if (t != null && t.length() > 0) out.add(t.toString());
-        }
-        for (int i = 0; i < node.getChildCount(); i++) {
-            collectPoeText(node.getChild(i), out);
-        }
-    }
-
-    private boolean isPoeUiText(String text) {
-        String x = text.toLowerCase(Locale.ROOT).trim();
-        return x.equals("send") || x.equals("gửi") || x.equals("ask")
-                || x.equals("stop") || x.equals("cancel")
-                || x.equals("poe") || x.equals("new chat")
-                || x.equals("copy") || x.equals("sao chép");
-    }
-
-    private void returnToPackage(String packageName) {
-        try {
-            android.content.Intent back =
-                    getPackageManager().getLaunchIntentForPackage(packageName);
-            if (back != null) {
-                back.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-                        | android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-                startActivity(back);
-            }
-        } catch (Exception ignored) {}
     }
 
     private boolean sendMessage(String text) {
@@ -745,7 +476,7 @@ public class MessageAccessibilityService extends AccessibilityService {
         void onReply(String question, String answer, String error);
     }
 
-    /** Manual bubble request: uses the same single persistent Poe session. */
+    /** Manual bubble request: uses the direct AshnaAI API. */
     public void generateManualReply(final String question, final ReplyCallback callback) {
         if (callback == null || question == null || question.trim().isEmpty()) return;
         worker.execute(() -> {
@@ -756,10 +487,10 @@ public class MessageAccessibilityService extends AccessibilityService {
                         getSharedPreferences("AutoMessenger", 0);
                 String prompt = p.getString("prompt",
                         "Trả lời tự nhiên bằng tiếng Việt, ngắn gọn, thân thiện. Chỉ trả về nội dung cần gửi.");
-                answer = requestPoeReply(prompt, question.trim());
+                answer = AiClient.reply(p.getString("ashna_api_key", ""), p.getString("ashna_model", "gpt-4o-mini"), prompt, question.trim());
                 AutoMessengerService.setLastConversation(question.trim(), answer);
             } catch (Exception e) {
-                error = shortError(e.getMessage() == null ? "Lỗi Poe không xác định" : e.getMessage());
+                error = shortError(e.getMessage() == null ? "Lỗi AshnaAI không xác định" : e.getMessage());
             }
             final String a = answer;
             final String err = error;
