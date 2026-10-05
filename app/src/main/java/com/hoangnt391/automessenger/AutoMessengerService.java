@@ -450,7 +450,7 @@ public class AutoMessengerService extends Service {
         }
         if (initialQuestion.isEmpty() && initialAnswer.isEmpty()) {
             TextView empty = new TextView(this);
-            empty.setText("Nhập câu hỏi bên dưới để bot tạo câu trả lời.");
+            empty.setText("Nhập câu hỏi bên dưới để tìm kiếm, hỏi đáp hoặc soạn nội dung.");
             empty.setTextSize(13);
             empty.setTextColor(0xFF77717D);
             empty.setGravity(Gravity.CENTER);
@@ -532,6 +532,8 @@ public class AutoMessengerService extends Service {
                             error == null ? "Không tạo được câu trả lời." : error,
                             false);
                 } else {
+                    lastQuestion = question == null ? q : question;
+                    lastAnswer = answer;
                     addChatBubble(messages, answer, false);
                 }
                 send.setEnabled(true);
