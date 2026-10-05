@@ -214,48 +214,12 @@ public class MessageAccessibilityService extends AccessibilityService {
 
     private void generateAndSend(final String incoming) {
         replying = true;
-        android.content.SharedPreferences p = getSharedPreferences("AutoMessenger", 0);
-        String mode = p.getString("ai_mode", "web");
-        if ("web".equals(mode)) {
-            AccessibilityNodeInfo current = getRootInActiveWindow();
-            ashnaWebTargetPackage = value(current == null ? null : current.getPackageName());
-            safeRecycle(current);
-            ashnaWebQuestion = incoming;
-            postDebug("Ashna Web Free: mở GPT-6 Sol...");
-            openAshnaWebAndAsk(incoming);
-            return;
-        }
-        postDebug("Đang xử lý bằng AshnaAI API...");
-        worker.execute(() -> {
-            try {
-                String prompt = p.getString("prompt",
-                        "Bạn đang tạo NỘI DUNG TIN NHẮN để ứng dụng tự động gửi cho người khác. " +
-                        "Chỉ trả về đúng nội dung tin nhắn cần gửi. Không giải thích, không nói bạn là AI. " +
-                        "Trả lời bằng tiếng Việt, tự nhiên, thân thiện, ngắn gọn. Không markdown.");
-                String reply = AiClient.reply(p.getString("ashna_api_key", ""),
-                        p.getString("ashna_model", "gpt-6-sol"), prompt, incoming);
-                if (reply != null && !reply.trim().isEmpty()) {
-                    final String answer = reply.trim();
-                    AutoMessengerService.setLastConversation(incoming, answer);
-                    new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
-                        if (sendMessage(answer)) {
-                            lastSent = answer;
-                            lastReplyAt = System.currentTimeMillis();
-                            postDebug("Đã gửi câu trả lời.");
-                        }
-                    });
-                }            } catch (Exception e) {
-                String message = e.getMessage() == null ? "Lỗi AshnaAI không xác định" : e.getMessage();
-                postDebug("LỖI: " + shortError(message));
-                new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
-                        android.widget.Toast.makeText(this,
-                                "Không trả lời được: " + shortError(message),
-                                android.widget.Toast.LENGTH_LONG).show());
-            } finally {
-                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
-                        () -> replying = false, 1000L);
-            }
-        });
+        AccessibilityNodeInfo current = getRootInActiveWindow();
+        ashnaWebTargetPackage = value(current == null ? null : current.getPackageName());
+        safeRecycle(current);
+        ashnaWebQuestion = incoming;
+        postDebug("Ashna Web Free: xử lý ngầm...");
+        openAshnaWebAndAsk(incoming);
     }
 
     /** Ashna Web Free runs inside an invisible accessibility WebView. */
@@ -798,27 +762,7 @@ public class MessageAccessibilityService extends AccessibilityService {
     /** Manual bubble request: same hidden Ashna Web Free engine as auto-replies. */
     public void generateManualReply(final String question, final ReplyCallback callback) {
         if (callback == null || question == null || question.trim().isEmpty()) return;
-        android.content.SharedPreferences p = getSharedPreferences("AutoMessenger", 0);
-        if ("web".equals(p.getString("ai_mode", "web"))) {
-            requestAshnaWebReply(question.trim(), callback);
-            return;
-        }
-        worker.execute(() -> {
-            String answer = null;
-            String error = null;
-            try {
-                String prompt = p.getString("prompt",
-                        "Trả lời tự nhiên bằng tiếng Việt, ngắn gọn, thân thiện. Chỉ trả về nội dung cần gửi.");
-                answer = AiClient.reply(p.getString("ashna_api_key", ""),
-                        p.getString("ashna_model", "gpt-6-sol"), prompt, question.trim());
-                AutoMessengerService.setLastConversation(question.trim(), answer);
-            } catch (Exception e) {
-                error = shortError(e.getMessage() == null ? "Lỗi AshnaAI không xác định" : e.getMessage());
-            }
-            final String a = answer, err = error;
-            new android.os.Handler(android.os.Looper.getMainLooper()).post(
-                    () -> callback.onReply(question.trim(), a, err));
-        });
+        requestAshnaWebReply(question.trim(), callback);
     }
 
     public boolean putTextInMessenger(String text) { return sendMessage(text); }
