@@ -161,6 +161,18 @@ public class MainActivity extends Activity {
         accessibility.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
         settingsCard.addView(accessibility);
 
+        Button exit = button("⏻ Thoát ứng dụng");
+        exit.setOnClickListener(v -> {
+            try {
+                stopService(new Intent(this, AutoMessengerService.class));
+                p.edit().putBoolean("enabled", false).putBoolean("auto", false).apply();
+                finishAndRemoveTask();
+            } catch (Exception e) {
+                finish();
+            }
+        });
+        settingsCard.addView(exit);
+
         Button save = button("LƯU & CHẠY");
         save.setTextSize(16);
         save.setOnClickListener(v -> saveAndApply());
