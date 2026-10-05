@@ -883,6 +883,17 @@ public class MessageAccessibilityService extends AccessibilityService {
 
     @Override public void onDestroy() {
         instance = null;
+        try { hideAshnaWeb(); } catch (Exception ignored) {}
+        try {
+            if (ashnaWebWindowManager != null) {
+                if (ashnaLoginCloseButton != null) {
+                    try { ashnaWebWindowManager.removeViewImmediate(ashnaLoginCloseButton); } catch (Exception ignored) {}
+                }
+                if (ashnaHiddenWebView != null) {
+                    try { ashnaWebWindowManager.removeViewImmediate(ashnaHiddenWebView); } catch (Exception ignored) {}
+                }
+            }
+        } catch (Exception ignored) {}
         worker.shutdownNow();
         debounceScheduler.shutdownNow();
         safeRecycle(lastInput);
