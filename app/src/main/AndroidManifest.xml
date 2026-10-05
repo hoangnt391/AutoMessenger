@@ -25,7 +25,6 @@
             android:name=".MessageAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:exported="true"
-            android:directBootAware="true"
             android:label="@string/accessibility_label">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService"/>
