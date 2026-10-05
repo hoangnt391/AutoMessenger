@@ -36,6 +36,7 @@ public class MessageAccessibilityService extends AccessibilityService {
     private volatile boolean ashnaWebBusy = false;
     private String ashnaWebTargetPackage = "";
     private String ashnaWebQuestion = "";
+    private String ashnaSubmittedInstruction = "";
     private android.webkit.WebView ashnaHiddenWebView;
     private android.view.WindowManager ashnaWebWindowManager;
     private android.view.WindowManager.LayoutParams ashnaWebWindowParams;
@@ -256,6 +257,7 @@ public class MessageAccessibilityService extends AccessibilityService {
             }
             ashnaWebBusy = true;
             ashnaWebQuestion = originalQuestion;
+            ashnaSubmittedInstruction = aiInstruction;
             ashnaWebCallback = callback;
             ashnaLastCandidate = "";
             ashnaStableCandidateChecks = 0;
@@ -602,7 +604,7 @@ public class MessageAccessibilityService extends AccessibilityService {
                 + "var q=" + jsQuote(question) + ";"
                 + "var body=document.body?document.body.innerText:'';"
                 + "var lines=body.split(/\\n+/).map(function(x){return x.trim()}).filter(Boolean);"
-                + "var qi=-1;for(var i=lines.length-1;i>=0;i--){if(lines[i]===q){qi=i;break;}}"
+                + "var qi=-1;for(var i=lines.length-1;i>=0;i--){if(submitted&&lines[i]===submitted){qi=i;break;}}\n                + "if(qi<0){for(var i=lines.length-1;i>=0;i--){if(lines[i]===q){qi=i;break;}}}""
                 + "var bad=/^(send|gửi|new chat|chat|settings|sign in|log in|copy|regenerate|stop|retry|model|agent|input|thinking|thought|thinking\\.{0,3}|gpt\\s*6\\s*sol|ashnaai(?:\\s+can\\s+make\\s+mistakes)?|how can i help you today\\?)$/i;"
                 + "var cand=[];"
                 + "if(qi>=0){for(var j=qi+1;j<lines.length;j++){var t=lines[j];if(t===q||bad.test(t)||t.length<2||t.length>4000)continue;cand.push(t);}}"
