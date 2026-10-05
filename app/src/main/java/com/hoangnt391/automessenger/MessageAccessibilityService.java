@@ -637,6 +637,15 @@ public class MessageAccessibilityService extends AccessibilityService {
         debounceScheduler.shutdownNow();
         safeRecycle(lastInput);
         lastInput = null;
+        if (ashnaHiddenWebView != null) {
+            try {
+                if (ashnaWebWindowManager != null) ashnaWebWindowManager.removeView(ashnaHiddenWebView);
+            } catch (Exception ignored) {}
+            try { ashnaHiddenWebView.stopLoading(); } catch (Exception ignored) {}
+            try { ashnaHiddenWebView.destroy(); } catch (Exception ignored) {}
+            ashnaHiddenWebView = null;
+        }
+        ashnaWebCallback = null;
         super.onDestroy();
     }
 
