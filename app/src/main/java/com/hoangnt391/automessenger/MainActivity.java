@@ -103,7 +103,7 @@ public class MainActivity extends Activity {
         // ===== DIRECT AI CHAT =====
         LinearLayout chatCard = card();
         chatCard.addView(tv("🤖 Hỏi AI trực tiếp", 19, 0xFF27212E, true));
-        chatCard.addView(tv("Khu vực này độc lập với luồng tự động. Nhập câu hỏi bất kỳ để hỏi ChatGPT qua cơ chế hiện tại.", 13, 0xFF6F6878, false));
+        chatCard.addView(tv("Khu vực này độc lập với luồng tự động. Nhập câu hỏi bất kỳ để hỏi Poe qua cơ chế hiện tại.", 13, 0xFF6F6878, false));
 
         directInput = new EditText(this);
         directInput.setHint("Ví dụ: Phân tích câu này hoặc viết một câu trả lời...");
@@ -112,7 +112,7 @@ public class MainActivity extends Activity {
         directInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         chatCard.addView(directInput);
 
-        Button ask = button("➤ Gửi cho ChatGPT");
+        Button ask = button("➤ Gửi cho Poe");
         ask.setOnClickListener(v -> askDirect());
         chatCard.addView(ask);
 
@@ -333,7 +333,7 @@ public class MainActivity extends Activity {
             return;
         }
         if (!MessageAccessibilityService.isRunning()) {
-            directResult.setText("⚠️ Chưa kết nối Trợ năng. Chat trực tiếp cũng dùng Trợ năng để điều khiển ứng dụng ChatGPT.");
+            directResult.setText("⚠️ Chưa kết nối Trợ năng. Chat trực tiếp cũng dùng Trợ năng để điều khiển ứng dụng Poe.");
             new android.app.AlertDialog.Builder(this)
                     .setTitle("Cần bật Trợ năng")
                     .setMessage("Vào Cài đặt > Trợ năng > AutoMessenger và bật dịch vụ. Sau đó quay lại đây và gửi câu hỏi.")
@@ -343,13 +343,13 @@ public class MainActivity extends Activity {
                     .show();
             return;
         }
-        directResult.setText("🤖 Đang gửi câu hỏi sang ChatGPT...");
+        directResult.setText("🤖 Đang gửi câu hỏi sang Poe...");
         executor.execute(() -> {
             try {
                 String answer = AiClient.reply("", "", "Trả lời trực tiếp câu hỏi của người dùng. " +
                         "Không tự ý gửi câu trả lời sang người khác. Trả lời rõ ràng, hữu ích.", q);
                 runOnUiThread(() -> directResult.setText(answer == null || answer.trim().isEmpty()
-                        ? "Không đọc được câu trả lời từ ChatGPT." : answer));
+                        ? "Không đọc được câu trả lời từ Poe." : answer));
             } catch (Exception e) {
                 runOnUiThread(() -> directResult.setText("❌ Lỗi: " + e.getMessage()));
             }
@@ -367,7 +367,7 @@ public class MainActivity extends Activity {
         status.setText("Trạng thái: " +
                 (MessageAccessibilityService.isRunning() ? "Trợ năng OK" : "Chưa bật Trợ năng") +
                 " • Prompt: " + activePromptName +
-                " • AI: ChatGPT ứng dụng");
+                " • AI: Poe ứng dụng");
     }
 
     private void saveAndApply() {
