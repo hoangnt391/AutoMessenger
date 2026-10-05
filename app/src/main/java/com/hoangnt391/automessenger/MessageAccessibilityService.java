@@ -467,7 +467,7 @@ public class MessageAccessibilityService extends AccessibilityService {
                 + "var bad=/^(send|gửi|new chat|chat|settings|sign in|log in|copy|regenerate|stop|retry|model|agent)$/i;"
                 + "var cand=[];"
                 + "if(qi>=0){for(var j=qi+1;j<lines.length;j++){var t=lines[j];if(t===q||bad.test(t)||t.length<2||t.length>4000)continue;cand.push(t);}}"
-                + "if(!cand.length){var nodes=[].slice.call(document.querySelectorAll('[data-message-id],[data-message],[role=\"article\"],[data-testid*="message"],[class*="message"],[class*="Message"]'));"
+                + "if(!cand.length){var nodes=[].slice.call(document.querySelectorAll('[data-message-id],[data-message],[role=\"article\"],[data-testid*=\"message\"],[class*=\"message\"],[class*=\"Message\"]'));"
                 + "nodes.forEach(function(n){var t=(n.innerText||'').trim();if(t&&t!==q&&t.length>=2&&t.length<4000&&!bad.test(t))cand.push(t);});}"
                 + "return JSON.stringify({body:body,candidates:cand.slice(-8)});})();";
 
