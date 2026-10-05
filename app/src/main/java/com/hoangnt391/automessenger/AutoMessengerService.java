@@ -404,7 +404,7 @@ public class AutoMessengerService extends Service {
         panel.setBackground(bg);
 
         TextView title = new TextView(this);
-        title.setText("AutoMessenger • Poe");
+        title.setText("AutoMessenger • Ashna Web Free");
         title.setTextSize(18);
         title.setTextColor(0xFF241F29);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -412,7 +412,7 @@ public class AutoMessengerService extends Service {
 
         TextView status = new TextView(this);
         boolean autoOn = getSharedPreferences("AutoMessenger", 0).getBoolean("auto", false);
-        status.setText((MessageAccessibilityService.isRunning() ? "● Trợ năng OK" : "⚠ Chưa bật Trợ năng") + "  •  Poe");
+        status.setText((MessageAccessibilityService.isRunning() ? "● Trợ năng OK" : "⚠ Chưa bật Trợ năng") + "  •  Ashna Web Free");
         status.setTextSize(12);
         status.setTextColor(0xFF77717D);
         status.setPadding(0, (int)(3*d), 0, (int)(8*d));
@@ -490,7 +490,7 @@ public class AutoMessengerService extends Service {
             input.setText("");
             addChatBubble(messages, q, true);
             TextView thinking = new TextView(this);
-            thinking.setText("Đang tạo câu trả lời trên Poe…");
+            thinking.setText("Đang tạo câu trả lời trên Ashna Web Free…");
             thinking.setTextSize(13);
             thinking.setTextColor(0xFF77717D);
             thinking.setPadding((int)(14*d), (int)(8*d), (int)(14*d), (int)(8*d));
@@ -597,7 +597,7 @@ public class AutoMessengerService extends Service {
             p.edit().putBoolean("auto", next).apply();
             if (next && projection != null && imageReader == null) startScreenCapture();
             if (!next) stopScreenCaptureOnly();
-            status.setText((MessageAccessibilityService.isRunning() ? "● Trợ năng OK" : "⚠ Chưa bật Trợ năng") + "  •  Poe  •  " + (next ? "Tự động ON" : "Tự động OFF"));
+            status.setText((MessageAccessibilityService.isRunning() ? "● Trợ năng OK" : "⚠ Chưa bật Trợ năng") + "  •  Ashna Web Free  •  " + (next ? "Tự động ON" : "Tự động OFF"));
             toggle.setText(next ? "Tắt tự động trả lời" : "Bật tự động trả lời");
         });
         panel.addView(toggle);
