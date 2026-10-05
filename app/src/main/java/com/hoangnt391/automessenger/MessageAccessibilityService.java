@@ -114,11 +114,10 @@ public class MessageAccessibilityService extends AccessibilityService {
     }
 
     /**
-     * Smart debounce:
-     * - One isolated message: process after 5 seconds.
-     * - If another message arrives during that 5-second window, switch to a
-     *   10-second quiet period and keep extending it while messages continue.
-     * - All messages in the burst are sent to AI as one request.
+     * Gom tin nhắn theo "quiet period" 3 giây:
+     * - Mỗi tin mới sẽ reset đồng hồ 3 giây.
+     * - Nếu người kia nhắn liên tục, tất cả tin được gom thành 1 batch.
+     * - Chỉ khi im lặng đủ 3 giây mới chuyển batch cho chatbot.
      */
     private void queueIncomingMessage(String incoming) {
         final String text = incoming == null ? "" : incoming.trim();
@@ -127,24 +126,22 @@ public class MessageAccessibilityService extends AccessibilityService {
         synchronized (pendingLock) {
             long now = System.currentTimeMillis();
 
-            // Accessibility can emit the same message several times. Treat
-            // identical text within 1.2s as the same event.
+            // Accessibility có thể phát lại cùng một tin nhiều lần.
+            // Chỉ bỏ qua bản sao trong 1.2 giây, không làm mất tin giống nhau
+            // nếu người kia thực sự gửi lại sau đó.
             if (text.equals(lastQueuedText) && now - lastQueuedAt < 1200L) return;
             lastQueuedText = text;
             lastQueuedAt = now;
 
-            boolean wasEmpty = pendingMessages.isEmpty();
             pendingMessages.add(text);
 
+            // Có tin mới là bắt đầu/reset lại 3 giây im lặng.
             if (pendingFlush != null) pendingFlush.cancel(false);
 
-            long delay = wasEmpty ? 5L : 10L;
-            postDebug(wasEmpty
-                    ? "Có tin mới. Chờ 5s để xác định có nhắn tiếp..."
-                    : "Đang gom tin nhắn. Sẽ xử lý sau 10s im lặng...");
+            postDebug("Có tin mới. Gom tin và chờ 3s im lặng trước khi chatbot trả lời...");
 
             pendingFlush = debounceScheduler.schedule(
-                    this::flushPendingMessages, delay, TimeUnit.SECONDS);
+                    this::flushPendingMessages, 3L, TimeUnit.SECONDS);
         }
     }
 
@@ -247,8 +244,7 @@ public class MessageAccessibilityService extends AccessibilityService {
                             postDebug("Đã gửi câu trả lời.");
                         }
                     });
-                }
-            } catch (Exception e) {
+                }            } catch (Exception e) {
                 String message = e.getMessage() == null ? "Lỗi AshnaAI không xác định" : e.getMessage();
                 postDebug("LỖI: " + shortError(message));
                 new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
@@ -497,8 +493,7 @@ public class MessageAccessibilityService extends AccessibilityService {
             int p = body.lastIndexOf(question);
             if (p >= 0) {
                 String tail = body.substring(p + question.length()).trim();
-                String[] lines = tail.split("\\n+");
-                StringBuilder b = new StringBuilder();
+                String[] lines = tail.split("\\n+");                StringBuilder b = new StringBuilder();
                 for (String line : lines) {
                     String x = line.trim();
                     if (x.isEmpty() || isWebUiText(x)) continue;
@@ -747,8 +742,7 @@ public class MessageAccessibilityService extends AccessibilityService {
 
     private boolean isUiText(String s) {
         String x = s.toLowerCase(Locale.ROOT).trim();
-        return x.equals("send") || x.equals("gửi") || x.equals("gui")
-                || x.equals("message") || x.equals("messenger") || x.equals("aa")
+        return x.equals("send") || x.equals("gửi") || x.equals("gui")                || x.equals("message") || x.equals("messenger") || x.equals("aa")
                 || x.equals("more") || x.equals("thêm")
                 || x.contains("type a message") || x.contains("write a message")
                 || x.contains("nhập tin nhắn") || x.contains("tin nhắn");
