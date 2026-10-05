@@ -271,25 +271,32 @@ public class MessageAccessibilityService extends AccessibilityService {
         });
     }
 
-    /** Chỉ dẫn nội bộ: hiểu sắc thái trước rồi tiếp tục cuộc trò chuyện như người thật. */
+    /** Chỉ dẫn nội bộ: biến tin nhắn đầu vào thành câu trả lời tự nhiên trong đúng vai trò người đang trò chuyện. */
     private String buildAshnaInstruction(String question) {
-        String prompt = getSharedPreferences("AutoMessenger", 0)
+        String userStyle = getSharedPreferences("AutoMessenger", 0)
                 .getString("active_prompt_text", "")
                 .trim();
-        StringBuilder b = new StringBuilder();
-        b.append("Hãy tiếp tục cuộc trò chuyện như một người đang nhắn tin với một người khác. ");
-        b.append("Trước tiên hãy hiểu ý định và sắc thái của tin nhắn: hỏi han, trêu đùa, thả thính, tâm sự, vui vẻ, khó chịu hoặc đang cần thông tin. ");
-        b.append("Sau đó đáp lại đúng ý và đúng sắc thái, như một tin nhắn thật, không phải một bài giải thích. ");
-        b.append("Với tin nhắn đời thường, câu ngắn hoặc câu trêu đùa, hãy ưu tiên một câu đáp tự nhiên, ngắn gọn và có cảm xúc; không diễn giải lại câu người kia vừa nói. ");
-        b.append("Nếu đang tán tỉnh hoặc đùa vui, có thể đáp lại có duyên, hơi trêu hoặc thả thính nhẹ khi phù hợp với mạch trò chuyện. ");
-        b.append("Không tự biến câu nói thành câu hỏi mới. Không tự dịch sang ngôn ngữ khác. ");
-        b.append("Không phân tích, không giải thích cách trả lời và không nhắc đến AI, bot, mô hình, prompt, công cụ hay quy trình xử lý. ");
-        b.append("Chỉ hỏi lại khi thật sự thiếu thông tin để tiếp tục cuộc trò chuyện. ");
-        b.append("Nếu tin nhắn thực sự yêu cầu tìm kiếm, tra cứu, tổng hợp hoặc tìm lỗi/thông tin thì mới trả lời đầy đủ, có cấu trúc; với tin nhắn trò chuyện bình thường, tuyệt đối không chuyển sang kiểu trả lời tra cứu.\n");
-        if (!prompt.isEmpty()) {
-            b.append("Phong cách bổ sung do người dùng chọn:\n").append(prompt).append("\n");
+
+        // Không để prompt cũ chứa cả bộ luật nội bộ bị lồng lại vào prompt mới.
+        if (userStyle.startsWith("Hãy tiếp tục cuộc trò chuyện")
+                || userStyle.contains("Tin nhắn mới cần đáp lại:")
+                || userStyle.contains("Không nhắc đến AI, bot, mô hình")) {
+            userStyle = "Trả lời bằng tiếng Việt, tự nhiên, thân thiện và tinh tế.";
         }
-        b.append("Tin nhắn mới cần đáp lại:\n").append(question);
+
+        StringBuilder b = new StringBuilder();
+        b.append("Bạn đang đóng vai người nhận tin nhắn và phải NHẮN LẠI cho người kia. ");
+        b.append("Đừng trả lời như trợ lý đang giải bài, đừng giải thích yêu cầu. Hãy đọc câu cuối cùng và nói đúng câu mà một người thật sẽ nhắn lại. ");
+        b.append("Với câu hỏi đời thường, hãy trả lời trực tiếp câu hỏi đó từ góc nhìn của người đang nhắn tin. ");
+        b.append("Ví dụ: 'Anh đang làm gì thế' -> 'Anh đang làm việc nè, còn em?' hoặc một câu tự nhiên tương tự. ");
+        b.append("Với câu trêu như 'ai cho nhớ mà nhớ' -> có thể đáp 'Chẳng ai cho cả, tự nhiên nhớ thì biết làm sao 😌' hoặc một câu trêu lại tương tự. ");
+        b.append("Không lặp lại nguyên câu của người kia. Không hỏi lại một cách máy móc. Không phân tích, không giải thích, không nói về AI/bot/prompt/công cụ. ");
+        b.append("Giữ đúng ngôn ngữ của tin nhắn. Trả lời ngắn gọn vừa đủ như tin nhắn thật; chỉ dài và có cấu trúc khi người kia thực sự yêu cầu tra cứu, tìm kiếm, tổng hợp hoặc giải quyết một vấn đề. ");
+        b.append("Nếu đang tán tỉnh hoặc đùa vui, được phép đáp lại có duyên, hơi trêu và thả thính nhẹ nhưng không ép buộc.\n");
+        if (!userStyle.isEmpty()) {
+            b.append("Phong cách: ").append(userStyle).append("\n");
+        }
+        b.append("Tin nhắn của người kia:\n").append(question);
         return b.toString();
     }
     /**
