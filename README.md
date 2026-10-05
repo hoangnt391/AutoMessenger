@@ -34,3 +34,6 @@ Không cần Gemini API key hoặc ChatGPT API key.
 
 ## Ashna Web Free
 AutoMessenger hỗ trợ điều khiển AshnaAI Web Free qua Android Accessibility; đăng nhập AshnaAI trên trình duyệt trước khi bật tự động.
+
+
+- Ashna Web login overlay: full-screen touch/scroll enabled with a dedicated close button.
