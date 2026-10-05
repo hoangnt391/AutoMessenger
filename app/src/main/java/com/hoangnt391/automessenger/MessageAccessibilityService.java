@@ -609,9 +609,9 @@ public class MessageAccessibilityService extends AccessibilityService {
                 + "if(qi<0){for(var i=lines.length-1;i>=0;i--){if(lines[i]===q){qi=i;break;}}}"
                 + "var bad=/^(send|gửi|new chat|chat|settings|sign in|log in|copy|regenerate|stop|retry|model|agent|input|thinking|thought|thinking\\.{0,3}|generating(?:\\.{0,3})?|show more|show less|gpt\\s*6\\s*sol|ashnaai(?:\\s+can\\s+make\\s+mistakes)?|how can i help you today\\?)$/i;"
                 + "var cand=[];"
-                + "if(qi>=0){for(var j=qi+1;j<lines.length;j++){var t=lines[j];var low=t.toLowerCase();if(t===q||bad.test(t)||t.length<2||t.length>4000||low.indexOf("bạn đang đóng vai người nhận tin nhắn")>=0||low.indexOf("tin nhắn của người kia")>=0||low.indexOf("không phân tích, không giải thích")>=0||low.indexOf("chỉ xuất đúng nội dung tin nhắn")>=0)continue;cand.push(t);}}"
+                + "if(qi>=0){for(var j=qi+1;j<lines.length;j++){var t=lines[j];var low=t.toLowerCase();if(t===q||bad.test(t)||t.length<2||t.length>4000||low.indexOf('bạn đang đóng vai người nhận tin nhắn')>=0||low.indexOf('tin nhắn của người kia')>=0||low.indexOf('không phân tích, không giải thích')>=0||low.indexOf('chỉ xuất đúng nội dung tin nhắn')>=0)continue;cand.push(t);}}"
                 + "if(!cand.length){var nodes=[].slice.call(document.querySelectorAll('[data-message-id],[data-message],[role=\"article\"],[data-testid*=\"message\"],[class*=\"message\"],[class*=\"Message\"]'));"
-                + "nodes.forEach(function(n){var t=(n.innerText||'').trim();var low=t.toLowerCase();if(t&&t!==q&&t.length>=2&&t.length<4000&&!bad.test(t)&&low.indexOf("bạn đang đóng vai người nhận tin nhắn")<0&&low.indexOf("tin nhắn của người kia")<0&&low.indexOf("không phân tích, không giải thích")<0&&low.indexOf("chỉ xuất đúng nội dung tin nhắn")<0)cand.push(t);});}"
+                + "nodes.forEach(function(n){var t=(n.innerText||'').trim();var low=t.toLowerCase();if(t&&t!==q&&t.length>=2&&t.length<4000&&!bad.test(t)&&low.indexOf('bạn đang đóng vai người nhận tin nhắn')<0&&low.indexOf('tin nhắn của người kia')<0&&low.indexOf('không phân tích, không giải thích')<0&&low.indexOf('chỉ xuất đúng nội dung tin nhắn')<0)cand.push(t);});}"
                 + "return JSON.stringify({body:body,candidates:cand.slice(-8)});})();";
 
         ashnaHiddenWebView.evaluateJavascript(js, result -> {
