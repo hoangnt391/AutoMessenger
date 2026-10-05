@@ -21,7 +21,7 @@ public final class AiClient {
             throw new IllegalArgumentException("Chưa nhập AshnaAI API key.");
         }
         String chosenModel = model == null || model.trim().isEmpty()
-                ? "gpt-4o-mini" : model.trim();
+                ? "gpt-6-sol" : model.trim();
 
         String system = instructions == null ? "" : instructions.trim();
         String user = incoming == null ? "" : incoming.trim();
