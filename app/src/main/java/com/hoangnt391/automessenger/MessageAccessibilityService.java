@@ -36,6 +36,10 @@ public class MessageAccessibilityService extends AccessibilityService {
     private volatile boolean ashnaWebBusy = false;
     private String ashnaWebTargetPackage = "";
     private String ashnaWebQuestion = "";
+    private android.webkit.WebView ashnaHiddenWebView;
+    private android.view.WindowManager ashnaWebWindowManager;
+    private android.view.WindowManager.LayoutParams ashnaWebWindowParams;
+    private ReplyCallback ashnaWebCallback;
 
     private void ensureDebugChannel() {
         if (android.os.Build.VERSION.SDK_INT >= 26) {
@@ -258,150 +262,292 @@ public class MessageAccessibilityService extends AccessibilityService {
         });
     }
 
+    /** Ashna Web Free runs inside an invisible accessibility WebView. */
     private void openAshnaWebAndAsk(final String question) {
-        ashnaWebBusy = true;
+        requestAshnaWebReply(question, (q, answer, error) -> {
+            if (error != null || answer == null || answer.trim().isEmpty()) {
+                reportError(error == null ? "Ashna Web không trả về câu trả lời." : error);
+                return;
+            }
+            final String clean = answer.trim();
+            AutoMessengerService.setLastConversation(q, clean);
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                if (sendMessage(clean)) {
+                    lastSent = clean;
+                    lastReplyAt = System.currentTimeMillis();
+                    postDebug("Đã gửi câu trả lời qua Ashna Web Free chạy ngầm.");
+                }
+            });
+        });
+    }
+
+    public void requestAshnaWebReply(final String question, final ReplyCallback callback) {
+        if (question == null || question.trim().isEmpty() || callback == null) return;
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+            if (ashnaWebBusy) {
+                callback.onReply(question.trim(), null, "Ashna Web đang xử lý một câu hỏi khác.");
+                return;
+            }
+            ashnaWebBusy = true;
+            ashnaWebQuestion = question.trim();
+            ashnaWebCallback = callback;
+            ensureAshnaHiddenWebView();
+            if (ashnaHiddenWebView == null) {
+                finishAshnaWeb(null, "Không tạo được WebView Ashna chạy ngầm.");
+                return;
+            }
+            postDebug("Ashna Web Free: xử lý ngầm, không chuyển khỏi ứng dụng chat.");
+            ashnaHiddenWebView.loadUrl("https://app.ashna.ai/chat?agent=gpt-6-sol");
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                    () -> driveHiddenAshnaWeb(question.trim(), 0), 1800L);
+        });
+    }
+
+    private void ensureAshnaHiddenWebView() {
+        if (ashnaHiddenWebView != null) return;
         try {
-            android.content.Intent i = new android.content.Intent(android.content.Intent.ACTION_VIEW,
-                    android.net.Uri.parse("https://app.ashna.ai/chat?agent=gpt-6-sol"));
-            i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(i);
+            android.content.Context windowContext = this;
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                android.view.Display display = getDisplay();
+                if (display != null) {
+                    windowContext = createDisplayContext(display).createWindowContext(
+                            android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, null);
+                }
+            }
+            ashnaWebWindowManager = (android.view.WindowManager)
+                    windowContext.getSystemService(WINDOW_SERVICE);
+            if (ashnaWebWindowManager == null) return;
+
+            ashnaHiddenWebView = new android.webkit.WebView(windowContext);
+            android.webkit.WebSettings s = ashnaHiddenWebView.getSettings();
+            s.setJavaScriptEnabled(true);
+            s.setDomStorageEnabled(true);
+            s.setDatabaseEnabled(true);
+            s.setLoadsImagesAutomatically(true);
+            s.setJavaScriptCanOpenWindowsAutomatically(false);
+            s.setSupportMultipleWindows(false);
+            s.setMediaPlaybackRequiresUserGesture(true);
+
+            android.webkit.CookieManager.getInstance().setAcceptCookie(true);
+            android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(ashnaHiddenWebView, true);
+
+            ashnaHiddenWebView.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+            ashnaHiddenWebView.setAlpha(0.01f);
+            ashnaHiddenWebView.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
+            ashnaHiddenWebView.setWebViewClient(new android.webkit.WebViewClient() {
+                @Override public void onPageFinished(android.webkit.WebView view, String url) {
+                    super.onPageFinished(view, url);
+                    android.webkit.CookieManager.getInstance().flush();
+                    postDebug("Ashna Web: trang đã tải.");
+                }
+            });
+
+            int d = Math.max(1, (int)getResources().getDisplayMetrics().density);
+            ashnaWebWindowParams = new android.view.WindowManager.LayoutParams(
+                    360 * d, 640 * d,
+                    android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                    android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                            | android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                            | android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                    android.graphics.PixelFormat.TRANSLUCENT);
+            ashnaWebWindowParams.gravity = android.view.Gravity.TOP | android.view.Gravity.START;
+            ashnaWebWindowManager.addView(ashnaHiddenWebView, ashnaWebWindowParams);
         } catch (Exception e) {
+            ashnaHiddenWebView = null;
+            postDebug("LỖI Ashna WebView: " + shortError(e.getMessage()));
+        }
+    }
+
+    public void openAshnaLogin() {
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+            ensureAshnaHiddenWebView();
+            if (ashnaHiddenWebView == null || ashnaWebWindowManager == null) {
+                reportError("Không tạo được màn hình đăng nhập Ashna Web.");
+                return;
+            }
+            ashnaHiddenWebView.setAlpha(1f);
+            ashnaWebWindowParams.flags =
+                    android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
+            try { ashnaWebWindowManager.updateViewLayout(ashnaHiddenWebView, ashnaWebWindowParams); }
+            catch (Exception ignored) {}
+            ashnaHiddenWebView.loadUrl("https://app.ashna.ai/chat?agent=gpt-6-sol");
+            postDebug("Ashna Web: đăng nhập 1 lần, xong sẽ tự ẩn.");
+            monitorAshnaLogin(0);
+        });
+    }
+
+    private void hideAshnaWeb() {
+        if (ashnaHiddenWebView == null || ashnaWebWindowManager == null) return;
+        ashnaHiddenWebView.setAlpha(0.01f);
+        ashnaWebWindowParams.flags =
+                android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        | android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                        | android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
+        try { ashnaWebWindowManager.updateViewLayout(ashnaHiddenWebView, ashnaWebWindowParams); }
+        catch (Exception ignored) {}
+    }
+
+    private void monitorAshnaLogin(final int attempt) {
+        if (ashnaHiddenWebView == null) return;
+        if (attempt > 300) { hideAshnaWeb(); return; }
+        String js = "javascript:(function(){"
+                + "var t=document.body?document.body.innerText:'';"
+                + "var els=[].slice.call(document.querySelectorAll('textarea,input,[contenteditable=\"true\"]'));"
+                + "var visible=els.some(function(e){var r=e.getBoundingClientRect();"
+                + "return r.width>0&&r.height>0&&getComputedStyle(e).display!=='none'});"
+                + "var login=/sign in|log in|đăng nhập|login/i.test(t);"
+                + "return login?'LOGIN':(visible?'READY':'WAIT');})();";
+        ashnaHiddenWebView.evaluateJavascript(js, result -> {
+            if ("READY".equals(decodeJsString(result))) {
+                hideAshnaWeb();
+                postDebug("Ashna Web: đăng nhập xong, chuyển về chạy ngầm.");
+                return;
+            }
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                    () -> monitorAshnaLogin(attempt + 1), 1000L);
+        });
+    }
+
+    private void driveHiddenAshnaWeb(final String question, final int attempt) {
+        if (!ashnaWebBusy || ashnaHiddenWebView == null) return;
+        if (attempt > 45) {
+            finishAshnaWeb(null,
+                    "Không tìm thấy ô nhập Ashna Web sau 45 lần kiểm tra. Hãy đăng nhập Ashna Web 1 lần trong ứng dụng.");
+            return;
+        }
+        String js = "javascript:(function(){"
+                + "var vis=function(e){if(!e)return false;var r=e.getBoundingClientRect();"
+                + "var s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'};"
+                + "var els=[].slice.call(document.querySelectorAll('textarea,input,[contenteditable=\"true\"]'));"
+                + "els=els.filter(function(e){return vis(e)&&!e.disabled&&e.type!=='hidden'});"
+                + "var login=/sign in|log in|đăng nhập|login/i.test(document.body?document.body.innerText:'');"
+                + "var input=els.sort(function(a,b){return b.getBoundingClientRect().bottom-a.getBoundingClientRect().bottom})[0];"
+                + "if(login&&!input)return 'LOGIN';if(!input)return 'NO_INPUT';"
+                + "var q=" + jsQuote(question) + ";"
+                + "try{input.focus();if(input.isContentEditable){input.innerText=q;}else{"
+                + "var proto=input.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;"
+                + "var d=Object.getOwnPropertyDescriptor(proto,'value');if(d&&d.set)d.set.call(input,q);else input.value=q;}"
+                + "input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));"
+                + "var bs=[].slice.call(document.querySelectorAll('button,[role=\"button\"],input[type=\"submit\"]'));"
+                + "var b=bs.filter(function(x){var z=((x.innerText||'')+' '+(x.getAttribute('aria-label')||'')+' '+(x.getAttribute('title')||'')+' '+(x.getAttribute('data-testid')||'')).toLowerCase();"
+                + "return vis(x)&&/send|gửi|submit|arrow.?up|paper.?plane/.test(z)})[0];"
+                + "if(b){b.click();return 'SENT';}"
+                + "input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true}));"
+                + "input.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true}));"
+                + "return 'ENTER';}catch(e){return 'ERR:'+e.message;}})();";
+
+        ashnaHiddenWebView.evaluateJavascript(js, result -> {
+            String state = decodeJsString(result);
+            if ("LOGIN".equals(state)) {
+                finishAshnaWeb(null, "Ashna Web chưa đăng nhập trong AutoMessenger. Bấm 'Đăng nhập Ashna' trong bong bóng AI và đăng nhập 1 lần.");
+                return;
+            }
+            if ("SENT".equals(state) || "ENTER".equals(state)) {
+                postDebug("Ashna Web: đã gửi ngầm, chờ câu trả lời...");
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                        () -> pollHiddenAshnaAnswer(question, 0), 1800L);
+                return;
+            }
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                    () -> driveHiddenAshnaWeb(question, attempt + 1), 700L);
+        });
+    }
+
+    private void pollHiddenAshnaAnswer(final String question, final int attempt) {
+        if (!ashnaWebBusy || ashnaHiddenWebView == null) return;
+        if (attempt > 70) {
+            finishAshnaWeb(null, "Ashna Web không đọc được câu trả lời sau 70 lần kiểm tra.");
+            return;
+        }
+        String js = "javascript:(function(){"
+                + "var q=" + jsQuote(question) + ";"
+                + "var body=document.body?document.body.innerText:'';"
+                + "var lines=body.split(/\\n+/).map(function(x){return x.trim()}).filter(Boolean);"
+                + "var qi=-1;for(var i=lines.length-1;i>=0;i--){if(lines[i]===q){qi=i;break;}}"
+                + "var bad=/^(send|gửi|new chat|chat|settings|sign in|log in|copy|regenerate|stop|retry|model|agent)$/i;"
+                + "var cand=[];"
+                + "if(qi>=0){for(var j=qi+1;j<lines.length;j++){var t=lines[j];if(t===q||bad.test(t)||t.length<2||t.length>4000)continue;cand.push(t);}}"
+                + "if(!cand.length){var nodes=[].slice.call(document.querySelectorAll('[data-message-id],[data-message],[role=\"article\"],[data-testid*="message"],[class*="message"],[class*="Message"]'));"
+                + "nodes.forEach(function(n){var t=(n.innerText||'').trim();if(t&&t!==q&&t.length>=2&&t.length<4000&&!bad.test(t))cand.push(t);});}"
+                + "return JSON.stringify({body:body,candidates:cand.slice(-8)});})();";
+
+        ashnaHiddenWebView.evaluateJavascript(js, result -> {
+            String answer = extractHiddenAnswer(decodeJsString(result), question);
+            if (answer != null && answer.trim().length() >= 2) {
+                finishAshnaWeb(answer.trim(), null);
+                return;
+            }
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                    () -> pollHiddenAshnaAnswer(question, attempt + 1), 850L);
+        });
+    }
+
+    private String extractHiddenAnswer(String json, String question) {
+        if (json == null || json.trim().isEmpty()) return null;
+        try {
+            org.json.JSONObject o = new org.json.JSONObject(json);
+            org.json.JSONArray a = o.optJSONArray("candidates");
+            if (a != null) {
+                for (int i = a.length() - 1; i >= 0; i--) {
+                    String x = a.optString(i, "").trim();
+                    if (x.length() >= 2 && !x.equals(question) && !isWebUiText(x)) return x;
+                }
+            }
+            String body = o.optString("body", "");
+            int p = body.lastIndexOf(question);
+            if (p >= 0) {
+                String tail = body.substring(p + question.length()).trim();
+                String[] lines = tail.split("\\n+");
+                StringBuilder b = new StringBuilder();
+                for (String line : lines) {
+                    String x = line.trim();
+                    if (x.isEmpty() || isWebUiText(x)) continue;
+                    if (b.length() > 0) b.append("\\n");
+                    b.append(x);
+                    if (b.length() > 3500) break;
+                }
+                if (b.length() >= 2) return b.toString();
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    private String jsQuote(String value) {
+        if (value == null) return "\"\"";
+        return "\"" + value.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\r", "\\r")
+                .replace("\n", "\\n")
+                .replace("</", "<\\\\/") + "\"";
+    }
+
+    private String decodeJsString(String value) {
+        if (value == null) return "";
+        try {
+            Object parsed = new org.json.JSONTokener(value).nextValue();
+            return parsed == null ? "" : parsed.toString();
+        } catch (Exception ignored) {}
+        return value;
+    }
+
+    private void finishAshnaWeb(final String answer, final String error) {
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+            ReplyCallback cb = ashnaWebCallback;
+            ashnaWebCallback = null;
             ashnaWebBusy = false;
             replying = false;
-            reportError("Không mở được Ashna Web: " + e.getMessage());
-            return;
-        }
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
-                () -> driveAshnaWebInput(question, 0), 4000L);
-    }
-
-    private void driveAshnaWebInput(final String question, final int attempt) {
-        if (!ashnaWebBusy) return;
-        if (attempt > 35) {
-            ashnaWebBusy = false; replying = false;
-            reportError("Ashna Web không tìm thấy ô nhập. Hãy đăng nhập AshnaAI trên trình duyệt trước.");
-            return;
-        }
-        AccessibilityNodeInfo root = getRootInActiveWindow();
-        String pkg = value(root == null ? null : root.getPackageName());
-        if (!isBrowserPackage(pkg)) {
-            safeRecycle(root);
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> driveAshnaWebInput(question, attempt + 1), 1000L);
-            return;
-        }
-        AccessibilityNodeInfo input = findWebChatInput(root);
-        if (input == null) {
-            safeRecycle(root);
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> driveAshnaWebInput(question, attempt + 1), 1000L);
-            return;
-        }
-        Bundle args = new Bundle();
-        args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, question);
-        boolean ok = input.performAction(AccessibilityNodeInfo.ACTION_FOCUS) && input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
-        safeRecycle(input);
-        if (!ok) {
-            safeRecycle(root);
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> driveAshnaWebInput(question, attempt + 1), 700L);
-            return;
-        }
-        AccessibilityNodeInfo fresh = getRootInActiveWindow();
-        AccessibilityNodeInfo send = findWebSendButton(fresh);
-        boolean clicked = send != null && clickNodeOrParent(send);
-        safeRecycle(send); safeRecycle(fresh); safeRecycle(root);
-        if (!clicked) {
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> driveAshnaWebInput(question, attempt + 1), 900L);
-            return;
-        }
-        postDebug("Ashna Web: đã gửi câu hỏi, chờ câu trả lời...");
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> pollAshnaWebAnswer(question, 0, ""), 2000L);
-    }
-
-    private void pollAshnaWebAnswer(final String question, final int attempt, final String previous) {
-        if (!ashnaWebBusy) return;
-        if (attempt > 50) {
-            ashnaWebBusy = false; replying = false;
-            reportError("Ashna Web không đọc được câu trả lời sau 50 lần kiểm tra.");
-            return;
-        }
-        AccessibilityNodeInfo root = getRootInActiveWindow();
-        String pkg = value(root == null ? null : root.getPackageName());
-        if (!isBrowserPackage(pkg)) {
-            safeRecycle(root);
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> pollAshnaWebAnswer(question, attempt + 1, previous), 800L);
-            return;
-        }
-        String answer = extractAshnaWebAnswer(root, question);
-        safeRecycle(root);
-        if (answer != null && answer.length() >= 2 && !answer.equals(previous) && !answer.equals(question)) {
-            ashnaWebBusy = false; replying = false;
-            final String clean = answer.trim();
-            AutoMessengerService.setLastConversation(question, clean);
-            postDebug("Ashna Web: đã nhận câu trả lời.");
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                try {
-                    android.content.Intent back = getPackageManager().getLaunchIntentForPackage(ashnaWebTargetPackage);
-                    if (back != null) { back.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(back); }
-                } catch (Exception ignored) {}
-                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                    if (sendMessage(clean)) { lastSent = clean; lastReplyAt = System.currentTimeMillis(); postDebug("Đã gửi câu trả lời qua Ashna Web Free."); }
-                }, 1500L);
-            }, 500L);
-            return;
-        }
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> pollAshnaWebAnswer(question, attempt + 1, answer == null ? previous : answer), 900L);
-    }
-
-    private boolean isBrowserPackage(String pkg) {
-        return "com.android.chrome".equals(pkg) || "com.microsoft.emmx".equals(pkg) ||
-                "com.brave.browser".equals(pkg) || "org.mozilla.firefox".equals(pkg) ||
-                "com.sec.android.app.sbrowser".equals(pkg);
-    }
-
-    private AccessibilityNodeInfo findWebChatInput(AccessibilityNodeInfo node) {
-        if (node == null) return null;
-        if (node.isVisibleToUser() && node.isEditable()) {
-            String all = (value(node.getHintText()) + " " + value(node.getContentDescription()) + " " + value(node.getText())).toLowerCase(Locale.ROOT);
-            Rect r = new Rect(); node.getBoundsInScreen(r);
-            boolean notAddressBar = r.top > 140;
-            boolean looksLikeChat = all.contains("message") || all.contains("ask") || all.contains("chat") || all.contains("prompt") || all.contains("nhập") || all.contains("type");
-            if (notAddressBar && looksLikeChat) return AccessibilityNodeInfo.obtain(node);
-        }
-        for (int i = 0; i < node.getChildCount(); i++) { AccessibilityNodeInfo result = findWebChatInput(node.getChild(i)); if (result != null) return result; }
-        return null;
-    }
-
-    private AccessibilityNodeInfo findWebSendButton(AccessibilityNodeInfo node) {
-        if (node == null) return null;
-        String all = (value(node.getText()) + " " + value(node.getContentDescription()) + " " + value(node.getHintText()) + " " + value(node.getViewIdResourceName())).toLowerCase(Locale.ROOT);
-        if (node.isVisibleToUser() && (all.contains("send") || all.contains("gửi") || all.contains("submit"))) return AccessibilityNodeInfo.obtain(node);
-        for (int i = 0; i < node.getChildCount(); i++) { AccessibilityNodeInfo result = findWebSendButton(node.getChild(i)); if (result != null) return result; }
-        return null;
-    }
-
-    private String extractAshnaWebAnswer(AccessibilityNodeInfo root, String question) {
-        ArrayList<String> texts = new ArrayList<>(); collectWebTexts(root, texts);
-        String best = "";
-        for (String x : texts) {
-            String t = x == null ? "" : x.trim();
-            if (t.length() < 2 || t.length() > 3500) continue;
-            if (t.equals(question) || t.equals(lastSent) || isWebUiText(t)) continue;
-            if (t.length() > best.length()) best = t;
-        }
-        return best;
-    }
-
-    private void collectWebTexts(AccessibilityNodeInfo node, List<String> out) {
-        if (node == null) return;
-        if (node.isVisibleToUser() && !node.isEditable()) { String t = value(node.getText()).trim(); if (!t.isEmpty()) out.add(t); }
-        for (int i = 0; i < node.getChildCount(); i++) collectWebTexts(node.getChild(i), out);
+            if (cb != null) cb.onReply(ashnaWebQuestion, answer, error);
+        });
     }
 
     private boolean isWebUiText(String text) {
-        String x = text.toLowerCase(Locale.ROOT).trim();
-        return x.equals("send") || x.equals("gửi") || x.equals("new chat") || x.equals("chat") ||
-                x.equals("settings") || x.equals("sign in") || x.equals("log in") || x.equals("try again") ||
-                x.startsWith("model:") || x.startsWith("agent:");
+        String x = text == null ? "" : text.toLowerCase(Locale.ROOT).trim();
+        return x.equals("send") || x.equals("gửi") || x.equals("new chat") || x.equals("chat")
+                || x.equals("settings") || x.equals("sign in") || x.equals("log in")
+                || x.equals("try again") || x.equals("copy") || x.equals("regenerate")
+                || x.equals("stop") || x.startsWith("model:") || x.startsWith("agent:");
     }
+
     private boolean sendMessage(String text) {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null || root.getPackageName() == null) {
@@ -655,24 +801,27 @@ public class MessageAccessibilityService extends AccessibilityService {
         void onReply(String question, String answer, String error);
     }
 
-    /** Manual bubble request: uses the direct AshnaAI API. */
+    /** Manual bubble request: same hidden Ashna Web Free engine as auto-replies. */
     public void generateManualReply(final String question, final ReplyCallback callback) {
         if (callback == null || question == null || question.trim().isEmpty()) return;
+        android.content.SharedPreferences p = getSharedPreferences("AutoMessenger", 0);
+        if ("web".equals(p.getString("ai_mode", "web"))) {
+            requestAshnaWebReply(question.trim(), callback);
+            return;
+        }
         worker.execute(() -> {
             String answer = null;
             String error = null;
             try {
-                android.content.SharedPreferences p =
-                        getSharedPreferences("AutoMessenger", 0);
                 String prompt = p.getString("prompt",
                         "Trả lời tự nhiên bằng tiếng Việt, ngắn gọn, thân thiện. Chỉ trả về nội dung cần gửi.");
-                answer = AiClient.reply(p.getString("ashna_api_key", ""), p.getString("ashna_model", "gpt-4o-mini"), prompt, question.trim());
+                answer = AiClient.reply(p.getString("ashna_api_key", ""),
+                        p.getString("ashna_model", "gpt-6-sol"), prompt, question.trim());
                 AutoMessengerService.setLastConversation(question.trim(), answer);
             } catch (Exception e) {
                 error = shortError(e.getMessage() == null ? "Lỗi AshnaAI không xác định" : e.getMessage());
             }
-            final String a = answer;
-            final String err = error;
+            final String a = answer, err = error;
             new android.os.Handler(android.os.Looper.getMainLooper()).post(
                     () -> callback.onReply(question.trim(), a, err));
         });
