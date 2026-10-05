@@ -271,47 +271,26 @@ public class MessageAccessibilityService extends AccessibilityService {
         });
     }
 
-    /** Tạo yêu cầu rõ ràng để AI trả lời đúng câu hỏi gốc, không đổi sang tiếng Anh/meta. */
+    /** Chỉ dẫn nội bộ: giữ đúng ý người dùng và giao tiếp tự nhiên như người với người. */
     private String buildAshnaInstruction(String question) {
         String prompt = getSharedPreferences("AutoMessenger", 0)
                 .getString("active_prompt_text", "")
                 .trim();
         StringBuilder b = new StringBuilder();
-        b.append("QUY TẮC BẮT BUỘC: Bạn là chatbot trả lời trực tiếp cho người dùng Việt Nam. ");
-        b.append("Hãy trả lời đúng câu hỏi bên dưới, không dịch sang tiếng Anh, không đổi câu hỏi thành một câu hỏi khác, ");
-        b.append("không hỏi lại nếu có thể trả lời, không nói về trade-offs hay phân tích meta trừ khi người dùng yêu cầu. ");
-        b.append("Nếu người dùng yêu cầu tìm thông tin, hãy đưa ra thông tin cụ thể và rõ ràng. ");
-        b.append("Nếu yêu cầu cần câu trả lời dài thì trả lời đầy đủ; nếu người dùng nói ngắn gọn thì trả lời ngắn gọn; ");
-        b.append("nếu không nói độ dài thì trả lời vừa đủ, có tiêu đề/gạch đầu dòng khi giúp dễ đọc. ");
-        b.append("Không được trả lời kiểu 'What are the trade-offs of...' hoặc biến nội dung người dùng thành câu hỏi tiếng Anh.\n");
+        b.append("Hãy trả lời trực tiếp nội dung người dùng gửi, bằng đúng ngôn ngữ và đúng ý họ. ");
+        b.append("Giữ ngữ cảnh cuộc trò chuyện và nói chuyện tự nhiên, thân thiện, có thiện cảm như hai người đang nhắn tin với nhau. ");
+        b.append("Nếu là tin nhắn đời thường hoặc đang tán tỉnh, hãy tiếp lời tự nhiên, tinh tế, không máy móc và không phân tích meta. ");
+        b.append("Không biến câu nói thành một câu hỏi khác, không tự dịch sang tiếng Anh. ");
+        b.append("Không nhắc đến AI, bot, mô hình, prompt, công cụ hoặc quy trình xử lý. ");
+        b.append("Nếu người dùng yêu cầu tìm kiếm, tra cứu, tổng hợp hoặc tìm lỗi/thông tin, hãy thực hiện việc đó và đưa ra kết quả cụ thể, đầy đủ, dễ đọc; ");
+        b.append("có thể chia mục và nêu các chi tiết quan trọng để người dùng tự lọc/copy. ");
+        b.append("Độ dài theo yêu cầu; nếu không nói độ dài thì trả lời vừa đủ cho tình huống. ");
+        b.append("Chỉ hỏi lại khi thực sự thiếu thông tin cần thiết.\n");
         if (!prompt.isEmpty()) {
-            b.append("PHONG CÁCH/PROMPT ĐÃ CHỌN:\n").append(prompt).append("\n");
+            b.append("Phong cách bổ sung do người dùng chọn:\n").append(prompt).append("\n");
         }
-        b.append("CÂU HỎI NGUYÊN VĂN CỦA NGƯỜI DÙNG:\n").append(question);
+        b.append("Nội dung người dùng gửi nguyên văn:\n").append(question);
         return b.toString();
-    }
-
-        if (question == null || question.trim().isEmpty() || callback == null) return;
-        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
-            if (ashnaWebBusy) {
-                callback.onReply(question.trim(), null, "Ashna Web đang xử lý một câu hỏi khác.");
-                return;
-            }
-            ashnaWebBusy = true;
-            ashnaWebQuestion = question.trim();
-            ashnaWebCallback = callback;
-            ashnaLastCandidate = "";
-            ashnaStableCandidateChecks = 0;
-            ensureAshnaHiddenWebView();
-            if (ashnaHiddenWebView == null) {
-                finishAshnaWeb(null, "Không tạo được WebView Ashna chạy ngầm.");
-                return;
-            }
-            postDebug("Ashna Web Free: xử lý ngầm, không chuyển khỏi ứng dụng chat.");
-            ashnaHiddenWebView.loadUrl("https://app.ashna.ai/chat?agent=gpt-6-sol");
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
-                    () -> driveHiddenAshnaWeb(question.trim(), 0), 1800L);
-        });
     }
 
     /**
