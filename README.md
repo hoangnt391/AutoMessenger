@@ -30,3 +30,7 @@ Không cần Gemini API key hoặc ChatGPT API key.
 - API key and model are entered in the app and stored locally; no API key is committed to this repository.
 - Automatic replies keep the smart debounce: 5 seconds for an isolated message; if more messages arrive, the quiet period becomes 10 seconds and resets while messages continue.
 - A burst is sent to AshnaAI as one request and the result is sent back through Accessibility.
+
+
+## Ashna Web Free
+AutoMessenger hỗ trợ điều khiển AshnaAI Web Free qua Android Accessibility; đăng nhập AshnaAI trên trình duyệt trước khi bật tự động.
