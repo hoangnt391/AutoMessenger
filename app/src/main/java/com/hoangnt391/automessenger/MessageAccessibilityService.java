@@ -204,7 +204,7 @@ public class MessageAccessibilityService extends AccessibilityService {
             if (answer == null || answer.trim().isEmpty()) throw new Exception("Poe chưa trả về câu trả lời.");
             if (!returnPackage.isEmpty() && !returnPackage.equals("com.poe.android")) {
                 final String pkg = returnPackage;
-                new Handler(Looper.getMainLooper()).postDelayed(() -> returnToPackage(pkg), 250L);
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> returnToPackage(pkg), 250L);
             }
             postDebug("Đã đọc được câu trả lời từ Poe.");
             return answer.trim();
@@ -221,11 +221,11 @@ public class MessageAccessibilityService extends AccessibilityService {
         android.content.pm.PackageManager pm=getPackageManager();
         try { pm.getPackageInfo("com.poe.android",0); }
         catch(Exception e){ throw new Exception("Chưa cài ứng dụng Poe."); }
-        Handler main=new Handler(Looper.getMainLooper());
+        android.os.Handler main=new android.os.Handler(android.os.Looper.getMainLooper());
         java.util.concurrent.CountDownLatch done=new java.util.concurrent.CountDownLatch(1);
         java.util.concurrent.atomic.AtomicReference<Exception> error=new java.util.concurrent.atomic.AtomicReference<>();
         main.post(() -> { try {
-            Intent launch=pm.getLaunchIntentForPackage("com.poe.android");
+            android.content.Intent launch=pm.getLaunchIntentForPackage("com.poe.android");
             if(launch==null) throw new Exception("Không tìm thấy màn hình mở Poe.");
             launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
             startActivity(launch); done.countDown();
