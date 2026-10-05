@@ -19,6 +19,7 @@ public class AshnaLoginActivity extends Activity {
     private WebView webView;
     private TextView status;
     private boolean confirmed = false;
+    private boolean pageLoaded = false;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -45,8 +46,16 @@ public class AshnaLoginActivity extends Activity {
         root.addView(webView, new FrameLayout.LayoutParams(-1, -1));
 
         Button close = new Button(this);
-        close.setText("Đóng");
-        close.setOnClickListener(v -> finish());
+        close.setText("✕");
+        close.setContentDescription("Lưu phiên và quay lại AutoMessenger");
+        close.setOnClickListener(v -> {
+            CookieManager.getInstance().flush();
+            getSharedPreferences("AutoMessenger", 0).edit()
+                    .putBoolean("ashna_login_confirmed", confirmed || isSessionReady())
+                    .apply();
+            Toast.makeText(this, "Đã lưu phiên Ashna Web. Quay lại ứng dụng.", Toast.LENGTH_SHORT).show();
+            finish();
+        });
         FrameLayout.LayoutParams cp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.TOP | Gravity.END);
@@ -68,10 +77,16 @@ public class AshnaLoginActivity extends Activity {
 
         webView.setWebViewClient(new WebViewClient() {
             @Override public void onPageFinished(WebView v, String url) {
+                pageLoaded = true;
                 CookieManager.getInstance().flush();
                 checkLogin();
             }
         });
+    }
+
+    private boolean isSessionReady() {
+        return pageLoaded && webView != null && webView.getUrl() != null
+                && webView.getUrl().contains("/chat");
     }
 
     private void checkLogin() {
