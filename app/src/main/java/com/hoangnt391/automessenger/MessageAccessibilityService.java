@@ -604,7 +604,9 @@ public class MessageAccessibilityService extends AccessibilityService {
                 + "var q=" + jsQuote(question) + ";"
                 + "var body=document.body?document.body.innerText:'';"
                 + "var lines=body.split(/\\n+/).map(function(x){return x.trim()}).filter(Boolean);"
-                + "var qi=-1;for(var i=lines.length-1;i>=0;i--){if(submitted&&lines[i]===submitted){qi=i;break;}}\n                + "if(qi<0){for(var i=lines.length-1;i>=0;i--){if(lines[i]===q){qi=i;break;}}}""
+                + "var submitted=" + jsQuote(ashnaSubmittedInstruction) + ";"
+                + "var qi=-1;for(var i=lines.length-1;i>=0;i--){if(submitted&&lines[i]===submitted){qi=i;break;}}"
+                + "if(qi<0){for(var i=lines.length-1;i>=0;i--){if(lines[i]===q){qi=i;break;}}}"
                 + "var bad=/^(send|gửi|new chat|chat|settings|sign in|log in|copy|regenerate|stop|retry|model|agent|input|thinking|thought|thinking\\.{0,3}|gpt\\s*6\\s*sol|ashnaai(?:\\s+can\\s+make\\s+mistakes)?|how can i help you today\\?)$/i;"
                 + "var cand=[];"
                 + "if(qi>=0){for(var j=qi+1;j<lines.length;j++){var t=lines[j];if(t===q||bad.test(t)||t.length<2||t.length>4000)continue;cand.push(t);}}"
@@ -751,7 +753,7 @@ public class MessageAccessibilityService extends AccessibilityService {
                 || x.equals("settings") || x.equals("sign in") || x.equals("log in")
                 || x.equals("try again") || x.equals("copy") || x.equals("regenerate")
                 || x.equals("ashnaai can make mistakes") || x.equals("input") || x.equals("how can i help you today?")
-                || x.equals("stop") || x.startsWith("model:") || x.startsWith("agent:");
+                || x.equals("stop") || x.equals("show more") || x.equals("show less") || x.startsWith("model:") || x.startsWith("agent:");
     }
 
     private boolean sendMessage(String text) {
