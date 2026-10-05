@@ -76,7 +76,7 @@ public class AshnaLoginActivity extends Activity {
 
     private void checkLogin() {
         webView.evaluateJavascript("(function(){var vis=function(e){var r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!='none'&&s.visibility!='hidden';};var es=[].slice.call(document.querySelectorAll('button,a,[role=button],input'));var login=es.some(function(e){return vis(e)&&/sign in|log in|continue with google|continue with email|đăng nhập|login/i.test((e.innerText||e.value||e.getAttribute('aria-label')||''));});var composer=[].slice.call(document.querySelectorAll('textarea,input,[contenteditable=true]')).some(vis);var chat=/\\/chat/i.test(location.href)||/new chat/i.test(document.body?document.body.innerText:'');return JSON.stringify({login:login,composer:composer,chat:chat,url:location.href});})()", value -> {
-            if (value != null && value.contains(""login":false") && value.contains(""composer":true") && value.contains(""chat":true")) {
+            if (value != null && value.contains("\"login\":false") && value.contains("\"composer\":true") && value.contains("\"chat\":true")) {
                 if (!confirmed) {
                     confirmed = true;
                     CookieManager.getInstance().flush();
