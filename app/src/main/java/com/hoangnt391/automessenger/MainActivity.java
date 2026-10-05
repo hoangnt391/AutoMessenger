@@ -16,8 +16,6 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
     private static final int REQ_CAPTURE = 9001;
@@ -33,14 +31,9 @@ public class MainActivity extends Activity {
     private TextView status, selectedPrompt;
     private LinearLayout promptList;
     private EditText directInput;
-    private EditText ashnaKeyInput;
-    private EditText ashnaModelInput;
     private TextView directResult;
-    private TextView errorLog;
-    private RadioGroup aiModeGroup;
     private String activePromptName = "Mặc định";
     private String activePromptText = DEFAULT_PROMPT;
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
@@ -104,67 +97,36 @@ public class MainActivity extends Activity {
         promptCard.addView(promptList);
         content.addView(promptCard);
 
-        // ===== ASHNAAI =====
+        // ===== ASHNA WEB FREE =====
         LinearLayout aiCard = card();
-        aiCard.addView(tv("🤖 AshnaAI", 19, 0xFF27212E, true));
-        aiCard.addView(tv("Chọn nguồn AI. Web Free dùng AshnaAI trên trình duyệt; API chỉ dùng khi tài khoản có quyền External API.", 13, 0xFF6F6878, false));
-
-        aiModeGroup = new RadioGroup(this);
-        aiModeGroup.setOrientation(RadioGroup.VERTICAL);
-        RadioButton webMode = new RadioButton(this);
-        webMode.setText("🌐 Ashna Web Free (khuyến nghị)");
-        webMode.setId(10001);
-        RadioButton apiMode = new RadioButton(this);
-        apiMode.setText("🔌 Ashna API");
-        apiMode.setId(10002);
-        aiModeGroup.addView(webMode);
-        aiModeGroup.addView(apiMode);
-        aiModeGroup.check("api".equals(p.getString("ai_mode", "web")) ? 10002 : 10001);
-        aiCard.addView(aiModeGroup);
-
-        ashnaKeyInput = new EditText(this);
-        ashnaKeyInput.setHint("AshnaAI API key (sk-...)");
-        ashnaKeyInput.setSingleLine(true);
-        ashnaKeyInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT
-                | android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
-        ashnaKeyInput.setText(p.getString("ashna_api_key", ""));
-        aiCard.addView(ashnaKeyInput);
-
-        ashnaModelInput = new EditText(this);
-        ashnaModelInput.setHint("Model ID, ví dụ: gpt-6-sol");
-        ashnaModelInput.setSingleLine(true);
-        ashnaModelInput.setText(p.getString("ashna_model", "gpt-6.1-sol"));
-        aiCard.addView(ashnaModelInput);
-
-        errorLog = tv("Chưa có lỗi.", 13, 0xFF7A1F1F, false);
-        errorLog.setTextIsSelectable(true);
-        errorLog.setLongClickable(true);
-        errorLog.setPadding(14, 12, 14, 12);
-        errorLog.setBackground(roundBg(0xFFFFF1F1, 18));
-        aiCard.addView(errorLog);
-
-        Button copyError = button("📋 Sao chép lỗi");
-        copyError.setOnClickListener(v -> copyText(errorLog.getText().toString(), "Đã sao chép lỗi ✓"));
-        aiCard.addView(copyError);
-
-        Button testAshna = button("🔌 Kiểm tra kết nối AshnaAI");
-        testAshna.setOnClickListener(v -> testAshnaConnection());
-        aiCard.addView(testAshna);
+        aiCard.addView(tv("🤖 Ashna Web Free", 19, 0xFF27212E, true));
+        aiCard.addView(tv("AutoMessenger chỉ dùng Ashna Web Free chạy ngầm. Không cần API key, không có Ashna API và không mở Chrome/Ashna khi đang tự động trả lời.", 13, 0xFF6F6878, false));
+        Button login = button("🔐 Đăng nhập Ashna Web (1 lần)");
+        login.setOnClickListener(v -> {
+            MessageAccessibilityService service = MessageAccessibilityService.getInstance();
+            if (service != null) {
+                service.openAshnaLogin();
+                Toast.makeText(this, "Đăng nhập Ashna Web 1 lần. Xong sẽ tự ẩn và chạy ngầm.", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "Chưa bật Trợ năng.", Toast.LENGTH_SHORT).show();
+            }
+        });
+        aiCard.addView(login);
         content.addView(aiCard);
 
         // ===== DIRECT AI CHAT =====
         LinearLayout chatCard = card();
-        chatCard.addView(tv("🤖 Hỏi AI trực tiếp", 19, 0xFF27212E, true));
-        chatCard.addView(tv("Khu vực này độc lập với luồng tự động. Nhập câu hỏi bất kỳ để hỏi AshnaAI qua API trực tiếp.", 13, 0xFF6F6878, false));
+        chatCard.addView(tv("🤖 Hỏi Ashna Web Free", 19, 0xFF27212E, true));
+        chatCard.addView(tv("Khu vực này dùng cùng Ashna Web Free chạy ngầm với luồng tự động.", 13, 0xFF6F6878, false));
 
         directInput = new EditText(this);
-        directInput.setHint("Ví dụ: Phân tích câu này hoặc viết một câu trả lời...");
+        directInput.setHint("Ví dụ: Viết một câu trả lời...");
         directInput.setMinLines(3);
         directInput.setGravity(Gravity.TOP);
         directInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         chatCard.addView(directInput);
 
-        Button ask = button("➤ Gửi cho AshnaAI");
+        Button ask = button("➤ Hỏi Ashna Web Free");
         ask.setOnClickListener(v -> askDirect());
         chatCard.addView(ask);
 
@@ -378,61 +340,23 @@ public class MainActivity extends Activity {
         Toast.makeText(this, "Đã xóa prompt", Toast.LENGTH_SHORT).show();
     }
 
-    private void testAshnaConnection() {
-        final String key = ashnaKeyInput == null ? "" : ashnaKeyInput.getText().toString().trim();
-        final String model = ashnaModelInput == null ? "gpt-6.1-sol" : ashnaModelInput.getText().toString().trim();
-        if (key.isEmpty()) {
-            if (errorLog != null) errorLog.setText("❌ Chưa nhập AshnaAI API key.");
-            Toast.makeText(this, "Nhập AshnaAI API key trước", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        p.edit().putString("ashna_api_key", key)
-                .putString("ashna_model", model.isEmpty() ? "gpt-6.1-sol" : model).apply();
-        if (errorLog != null) errorLog.setText("⏳ Đang kiểm tra AshnaAI...");
-        Toast.makeText(this, "Đang kiểm tra AshnaAI...", Toast.LENGTH_SHORT).show();
-        executor.execute(() -> {
-            try {
-                AiClient.validateKey(key, model);
-                runOnUiThread(() -> {
-                    if (errorLog != null) errorLog.setText("✅ AshnaAI kết nối OK.");
-                    Toast.makeText(this, "AshnaAI kết nối OK ✓", Toast.LENGTH_LONG).show();
-                });
-            } catch (Exception e) {
-                runOnUiThread(() -> {
-                    String err = "❌ AshnaAI lỗi:\n" + String.valueOf(e.getMessage());
-                    if (errorLog != null) errorLog.setText(err);
-                    Toast.makeText(this, "AshnaAI lỗi: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                });
-            }
-        });
-    }
-
     private void askDirect() {
         final String q = directInput.getText().toString().trim();
         if (q.isEmpty()) {
             Toast.makeText(this, "Nhập câu hỏi trước", Toast.LENGTH_SHORT).show();
             return;
         }
-        if (!MessageAccessibilityService.isRunning()) {
-            directResult.setText("⚠️ Chưa kết nối Trợ năng. Chat trực tiếp cũng dùng Trợ năng để tự động đọc/gửi tin nhắn; AI chạy trực tiếp qua AshnaAI API.");
-            new android.app.AlertDialog.Builder(this)
-                    .setTitle("Cần bật Trợ năng")
-                    .setMessage("Vào Cài đặt > Trợ năng > AutoMessenger và bật dịch vụ. Sau đó quay lại đây và gửi câu hỏi.")
-                    .setNegativeButton("Để sau", null)
-                    .setPositiveButton("Mở cài đặt", (d, w) ->
-                            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)))
-                    .show();
+        MessageAccessibilityService service = MessageAccessibilityService.getInstance();
+        if (service == null) {
+            directResult.setText("⚠️ Chưa kết nối Trợ năng. Hãy bật AutoMessenger trong Trợ năng.");
             return;
         }
-        directResult.setText("🤖 Đang gửi câu hỏi sang AshnaAI...");
-        executor.execute(() -> {
-            try {
-                String answer = AiClient.reply(p.getString("ashna_api_key", ""), p.getString("ashna_model", "gpt-6-sol"), "Trả lời trực tiếp câu hỏi của người dùng. " +
-                        "Không tự ý gửi câu trả lời sang người khác. Trả lời rõ ràng, hữu ích.", q);
-                runOnUiThread(() -> directResult.setText(answer == null || answer.trim().isEmpty()
-                        ? "Không đọc được câu trả lời từ AshnaAI." : answer));
-            } catch (Exception e) {
-                runOnUiThread(() -> { String err = "❌ Lỗi AshnaAI:\n" + String.valueOf(e.getMessage()); directResult.setText(err); if (errorLog != null) errorLog.setText(err); });
+        directResult.setText("🤖 Đang xử lý trên Ashna Web Free…");
+        service.generateManualReply(q, (question, answer, error) -> {
+            if (error != null || answer == null || answer.trim().isEmpty()) {
+                directResult.setText(error == null ? "Không đọc được câu trả lời từ Ashna Web Free." : error);
+            } else {
+                directResult.setText(answer);
             }
         });
     }
@@ -448,18 +372,16 @@ public class MainActivity extends Activity {
         status.setText("Trạng thái: " +
                 (MessageAccessibilityService.isRunning() ? "Trợ năng OK" : "Chưa bật Trợ năng") +
                 " • Prompt: " + activePromptName +
-                " • AI: " + ("api".equals(p.getString("ai_mode", "web")) ? "Ashna API" : "Ashna Web Free"));
+                " • AI: Ashna Web Free");
     }
 
     private void saveAndApply() {
         boolean want = enabled.isChecked();
         boolean autoWant = auto.isChecked();
 
-        String key = ashnaKeyInput == null ? "" : ashnaKeyInput.getText().toString().trim();
-        String model = ashnaModelInput == null ? "gpt-6-sol" : ashnaModelInput.getText().toString().trim();
-        String aiMode = aiModeGroup != null && aiModeGroup.getCheckedRadioButtonId() == 10002 ? "api" : "web";
-        p.edit().putString("ashna_api_key", key).putString("ashna_model", model.isEmpty() ? "gpt-6-sol" : model)
-                .putString("ai_mode", aiMode)
+        // Chỉ dùng Ashna Web Free. Xóa sạch cấu hình API/key cũ khỏi máy.
+        p.edit().remove("ashna_api_key").remove("ashna_model")
+                .putString("ai_mode", "web")
                 .putBoolean("enabled", want).putBoolean("auto", autoWant)
                 .putString("prompt", activePromptText).putString("active_prompt_name", activePromptName)
                 .putString("active_prompt_text", activePromptText).putBoolean("bubble_hidden", false).apply();
@@ -509,7 +431,6 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
-        executor.shutdownNow();
         super.onDestroy();
     }
 
