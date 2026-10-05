@@ -400,9 +400,6 @@ public class MessageAccessibilityService extends AccessibilityService {
                 reportError("Không tạo được màn hình đăng nhập Ashna Web.");
                 return;
             }
-
-            // Keep login WebView visible/touchable until authentication is
-            // positively confirmed. A visible composer alone is not enough.
             ashnaLoginReadyChecks = 0;
             ashnaHiddenWebView.setAlpha(1f);
             ashnaHiddenWebView.setVisibility(android.view.View.VISIBLE);
@@ -432,19 +429,16 @@ public class MessageAccessibilityService extends AccessibilityService {
 
     private void monitorAshnaLogin(final int attempt) {
         if (ashnaHiddenWebView == null) return;
-
-        // Never hide because of a timeout. OAuth/email login may take longer.
         if (attempt > 600) {
             postDebug("Ashna Web: vẫn đang chờ đăng nhập. WebView được giữ nguyên.");
             new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
                     () -> monitorAshnaLogin(601), 5000L);
             return;
         }
-
         String js = "javascript:(function(){"
                 + "var t=document.body?document.body.innerText:'';"
                 + "var u=location.href||'';"
-                + "var els=[].slice.call(document.querySelectorAll('textarea,input,[contenteditable=\\"true\\"]'));"
+                + "var els=[].slice.call(document.querySelectorAll('textarea,input,[contenteditable=\"true\"]'));"
                 + "var visible=function(e){if(!e)return false;var r=e.getBoundingClientRect();"
                 + "var s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!='none'&&s.visibility!='hidden'};"
                 + "var composer=els.some(function(e){return visible(e)&&!e.disabled&&e.type!='hidden'});"
@@ -452,30 +446,21 @@ public class MessageAccessibilityService extends AccessibilityService {
                 + "var auth=/log out|sign out|đăng xuất|my account|profile/i.test(t);"
                 + "var chat=/\\/chat/i.test(u)||/new chat/i.test(t);"
                 + "return JSON.stringify({login:login,auth:auth,composer:composer,chat:chat,url:u});})();";
-
         ashnaHiddenWebView.evaluateJavascript(js, result -> {
             String state = decodeJsString(result);
             boolean confirmed = false;
             try {
                 org.json.JSONObject o = new org.json.JSONObject(state);
                 boolean login = o.optBoolean("login", true);
-                boolean auth = o.optBoolean("auth", false);
                 boolean composer = o.optBoolean("composer", false);
                 boolean chat = o.optBoolean("chat", false);
                 String url = o.optString("url", "");
-
-                // Require chat + composer + no login UI. The /chat URL is
-                // also accepted as the authenticated signal because Ashna
-                // does not always render a visible profile/logout label.
-                confirmed = composer && chat && !login && url.contains("/chat")
-                        && (auth || !login);
+                confirmed = composer && chat && !login && url.contains("/chat");
             } catch (Exception ignored) {}
 
             if (confirmed) ashnaLoginReadyChecks++;
             else ashnaLoginReadyChecks = 0;
 
-            // Three consecutive checks prevent a transient page render from
-            // hiding the login screen too early.
             if (ashnaLoginReadyChecks >= 3) {
                 try { android.webkit.CookieManager.getInstance().flush(); }
                 catch (Exception ignored) {}
@@ -487,7 +472,6 @@ public class MessageAccessibilityService extends AccessibilityService {
                 postDebug("Ashna Web: ĐÃ xác nhận đăng nhập. Đã lưu phiên và chuyển chạy ngầm.");
                 return;
             }
-
             new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
                     () -> monitorAshnaLogin(attempt + 1), 1000L);
         });
@@ -748,3 +732,169 @@ public class MessageAccessibilityService extends AccessibilityService {
         String cls = value(node.getClassName()).toLowerCase(Locale.ROOT);
 
         if (node.isVisibleToUser()
+                && (all.contains("send") || all.contains("gửi") || all.contains("gui")
+                || id.contains("message_send") || id.endsWith("_send")
+                || (cls.contains("imagebutton") && id.contains("send")))) return node;
+
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo result = findSendButton(node.getChild(i));
+            if (result != null) return result;
+        }
+        return null;
+    }
+
+    private boolean clickNodeOrParent(AccessibilityNodeInfo node) {
+        AccessibilityNodeInfo current = node;
+        for (int i = 0; i < 6 && current != null; i++) {
+            if (current.isVisibleToUser() && current.isClickable()
+                    && current.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true;
+            current = current.getParent();
+        }
+        return false;
+    }
+
+    private String extractLatestMessage(AccessibilityNodeInfo root, AccessibilityEvent event) {
+        AccessibilityNodeInfo source = event.getSource();
+        if (source != null) {
+            String candidate = messageTextFromNode(source);
+            safeRecycle(source);
+            if (candidate != null) return candidate;
+        }
+
+        List<AccessibilityNodeInfo> candidates = new ArrayList<>();
+        collectMessageNodes(root, candidates);
+        String best = "";
+        for (AccessibilityNodeInfo n : candidates) {
+            String candidate = messageTextFromNode(n);
+            if (candidate != null && !candidate.equals(lastSent)
+                    && !candidate.equals(lastIncoming)) best = candidate;
+            safeRecycle(n);
+        }
+        return best;
+    }
+
+    private void collectMessageNodes(AccessibilityNodeInfo node,
+                                      List<AccessibilityNodeInfo> out) {
+        if (node == null) return;
+        String text = value(node.getText()).trim();
+        if (node.isVisibleToUser() && !text.isEmpty() && !node.isEditable()
+                && isMessageLikeNode(node) && !isLikelyOutgoing(node)) {
+            out.add(AccessibilityNodeInfo.obtain(node));
+        }
+        for (int i = 0; i < node.getChildCount(); i++) collectMessageNodes(node.getChild(i), out);
+    }
+
+    private String messageTextFromNode(AccessibilityNodeInfo node) {
+        if (node == null || !node.isVisibleToUser() || node.isEditable()) return null;
+        String text = value(node.getText()).trim();
+        if (text.isEmpty() || text.length() > 4000 || isUiText(text)) return null;
+        if (!isMessageLikeNode(node) || isLikelyOutgoing(node)) return null;
+        return text;
+    }
+
+    private boolean isMessageLikeNode(AccessibilityNodeInfo node) {
+        String id = value(node.getViewIdResourceName()).toLowerCase(Locale.ROOT);
+        String cls = value(node.getClassName()).toLowerCase(Locale.ROOT);
+        String desc = value(node.getContentDescription()).toLowerCase(Locale.ROOT);
+        if (id.contains("message") || id.contains("messenger") || desc.contains("message")) return true;
+        if (cls.contains("textview")) {
+            Rect r = new Rect();
+            node.getBoundsInScreen(r);
+            return r.top > 120 && r.bottom > r.top;
+        }
+        return false;
+    }
+
+    private boolean isLikelyOutgoing(AccessibilityNodeInfo node) {
+        Rect r = new Rect();
+        node.getBoundsInScreen(r);
+        if (r.right <= r.left) return false;
+        int center = (r.left + r.right) / 2;
+        return center > getResources().getDisplayMetrics().widthPixels * 0.58f;
+    }
+
+    private boolean isUiText(String s) {
+        String x = s.toLowerCase(Locale.ROOT).trim();
+        return x.equals("send") || x.equals("gửi") || x.equals("gui")                || x.equals("message") || x.equals("messenger") || x.equals("aa")
+                || x.equals("more") || x.equals("thêm")
+                || x.contains("type a message") || x.contains("write a message")
+                || x.contains("nhập tin nhắn") || x.contains("tin nhắn");
+    }
+
+    private void replaceLastInput(AccessibilityNodeInfo input) {
+        if (lastInput != null && lastInput != input) safeRecycle(lastInput);
+        lastInput = input;
+    }
+
+    private String value(CharSequence s) { return s == null ? "" : s.toString(); }
+
+    private String normalize(String s) {
+        if (s == null) return "";
+        return s.replace("\u00a0", " ").trim().replaceAll("\\s+", " ");
+    }
+
+    private String shortError(String message) {
+        String x = message == null ? "Lỗi không xác định" : message.trim();
+        return x.length() > 180 ? x.substring(0, 180) : x;
+    }
+
+    private void safeRecycle(AccessibilityNodeInfo node) {
+        if (node != null) try { node.recycle(); } catch (Exception ignored) {}
+    }
+
+    @Override public void onInterrupt() {}
+
+    @Override public void onDestroy() {
+        instance = null;
+        worker.shutdownNow();
+        debounceScheduler.shutdownNow();
+        safeRecycle(lastInput);
+        lastInput = null;
+        if (ashnaHiddenWebView != null) {
+            try {
+                if (ashnaWebWindowManager != null) ashnaWebWindowManager.removeView(ashnaHiddenWebView);
+            } catch (Exception ignored) {}
+            try { ashnaHiddenWebView.stopLoading(); } catch (Exception ignored) {}
+            try { ashnaHiddenWebView.destroy(); } catch (Exception ignored) {}
+            ashnaHiddenWebView = null;
+        }
+        ashnaWebCallback = null;
+        super.onDestroy();
+    }
+
+
+
+    public interface ReplyCallback {
+        void onReply(String question, String answer, String error);
+    }
+
+    /** Manual bubble request: same hidden Ashna Web Free engine as auto-replies. */
+    public void generateManualReply(final String question, final ReplyCallback callback) {
+        if (callback == null || question == null || question.trim().isEmpty()) return;
+        requestAshnaWebReply(question.trim(), callback);
+    }
+
+    public boolean putTextInMessenger(String text) { return sendMessage(text); }
+
+    public boolean putTextInComposerOnly(String text) {
+        if (text == null || text.trim().isEmpty()) return false;
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root == null || !isSupportedChatPackage(value(root.getPackageName()))) {
+            safeRecycle(root);
+            return false;
+        }
+        AccessibilityNodeInfo input = findEditable(root);
+        if (input == null) {
+            safeRecycle(root);
+            return false;
+        }
+        input.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+        Bundle args = new Bundle();
+        args.putCharSequence(
+                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text);
+        boolean ok = input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+        if (ok) replaceLastInput(input); else safeRecycle(input);
+        safeRecycle(root);
+        return ok;
+    }
+}
