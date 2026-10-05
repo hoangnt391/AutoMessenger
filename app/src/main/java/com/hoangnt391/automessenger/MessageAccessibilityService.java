@@ -356,9 +356,6 @@ public class MessageAccessibilityService extends AccessibilityService {
                 throw new IllegalStateException("Không được cấp Accessibility Overlay. Hãy tắt/bật lại Trợ năng AutoMessenger.", e);
             } catch (android.view.WindowManager.InvalidDisplayException e) {
                 throw new IllegalStateException("Màn hình hiện tại chưa sẵn sàng cho Accessibility Overlay.", e);
-            } catch (android.view.WindowManager.InvalidLayoutParamsException e) {
-                throw new IllegalStateException("Thông số cửa sổ WebView không hợp lệ.", e);
-            }
             postDebug("Ashna WebView: đã tạo engine chạy ngầm.");
         } catch (Throwable e) {
             if (ashnaHiddenWebView != null) {
