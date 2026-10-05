@@ -669,6 +669,35 @@ public class MessageAccessibilityService extends AccessibilityService {
         super.onDestroy();
     }
 
+
+
+    public interface ReplyCallback {
+        void onReply(String question, String answer, String error);
+    }
+
+    /** Manual bubble request: uses the same single persistent Poe session. */
+    public void generateManualReply(final String question, final ReplyCallback callback) {
+        if (callback == null || question == null || question.trim().isEmpty()) return;
+        worker.execute(() -> {
+            String answer = null;
+            String error = null;
+            try {
+                android.content.SharedPreferences p =
+                        getSharedPreferences("AutoMessenger", 0);
+                String prompt = p.getString("prompt",
+                        "Trả lời tự nhiên bằng tiếng Việt, ngắn gọn, thân thiện. Chỉ trả về nội dung cần gửi.");
+                answer = requestPoeReply(prompt, question.trim());
+                AutoMessengerService.setLastConversation(question.trim(), answer);
+            } catch (Exception e) {
+                error = shortError(e.getMessage() == null ? "Lỗi Poe không xác định" : e.getMessage());
+            }
+            final String a = answer;
+            final String err = error;
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(
+                    () -> callback.onReply(question.trim(), a, err));
+        });
+    }
+
     public boolean putTextInMessenger(String text) { return sendMessage(text); }
 
     public boolean putTextInComposerOnly(String text) {
