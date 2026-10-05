@@ -404,7 +404,7 @@ public class AutoMessengerService extends Service {
         panel.setBackground(bg);
 
         TextView title = new TextView(this);
-        title.setText("AutoMessenger AI");
+        title.setText("AutoMessenger • Poe");
         title.setTextSize(18);
         title.setTextColor(0xFF241F29);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -412,7 +412,7 @@ public class AutoMessengerService extends Service {
 
         TextView status = new TextView(this);
         boolean autoOn = getSharedPreferences("AutoMessenger", 0).getBoolean("auto", false);
-        status.setText(autoOn ? "● Đang tự động trả lời" : "○ Đang tắt tự động");
+        status.setText((MessageAccessibilityService.isRunning() ? "● Trợ năng OK" : "⚠ Chưa bật Trợ năng") + "  •  Poe");
         status.setTextSize(12);
         status.setTextColor(0xFF77717D);
         status.setPadding(0, (int)(3*d), 0, (int)(8*d));
@@ -490,7 +490,7 @@ public class AutoMessengerService extends Service {
             input.setText("");
             addChatBubble(messages, q, true);
             TextView thinking = new TextView(this);
-            thinking.setText("Đang tạo câu trả lời…");
+            thinking.setText("Đang tạo câu trả lời trên Poe…");
             thinking.setTextSize(13);
             thinking.setTextColor(0xFF77717D);
             thinking.setPadding((int)(14*d), (int)(8*d), (int)(14*d), (int)(8*d));
@@ -567,6 +567,26 @@ public class AutoMessengerService extends Service {
 
         panel.addView(actions);
 
+        android.widget.Button copyQuestion = new android.widget.Button(this);
+        copyQuestion.setText("Sao chép câu hỏi");
+        copyQuestion.setAllCaps(false);
+        copyQuestion.setTextSize(12);
+        copyQuestion.setOnClickListener(v -> copyToClipboard("Câu hỏi", lastQuestion));
+        panel.addView(copyQuestion);
+
+        android.widget.Button fullSettings = new android.widget.Button(this);
+        fullSettings.setText("⚙ Cài đặt / Prompt / Trợ năng");
+        fullSettings.setAllCaps(false);
+        fullSettings.setTextSize(12);
+        fullSettings.setOnClickListener(v -> {
+            try {
+                Intent i = new Intent(this, MainActivity.class);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                startActivity(i);
+            } catch (Exception ignored) {}
+        });
+        panel.addView(fullSettings);
+
         android.widget.Button toggle = new android.widget.Button(this);
         toggle.setText(autoOn ? "Tắt tự động trả lời" : "Bật tự động trả lời");
         toggle.setAllCaps(false);
@@ -577,7 +597,7 @@ public class AutoMessengerService extends Service {
             p.edit().putBoolean("auto", next).apply();
             if (next && projection != null && imageReader == null) startScreenCapture();
             if (!next) stopScreenCaptureOnly();
-            status.setText(next ? "● Đang tự động trả lời" : "○ Đang tắt tự động");
+            status.setText((MessageAccessibilityService.isRunning() ? "● Trợ năng OK" : "⚠ Chưa bật Trợ năng") + "  •  Poe  •  " + (next ? "Tự động ON" : "Tự động OFF"));
             toggle.setText(next ? "Tắt tự động trả lời" : "Bật tự động trả lời");
         });
         panel.addView(toggle);
