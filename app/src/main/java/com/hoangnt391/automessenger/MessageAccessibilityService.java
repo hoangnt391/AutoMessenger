@@ -250,17 +250,20 @@ public class MessageAccessibilityService extends AccessibilityService {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null || root.getPackageName() == null) {
             safeRecycle(root);
+            reportError("Không lấy được màn hình chat hiện tại.");
             return false;
         }
         String pkg = root.getPackageName().toString();
         if (!isSupportedChatPackage(pkg)) {
             safeRecycle(root);
+            reportError("Ứng dụng chat hiện tại không được hỗ trợ: " + pkg);
             return false;
         }
 
         AccessibilityNodeInfo input = findEditable(root);
         if (input == null) {
             safeRecycle(root);
+            reportError("Không tìm thấy ô nhập tin nhắn.");
             return false;
         }
         replaceLastInput(input);
@@ -273,6 +276,7 @@ public class MessageAccessibilityService extends AccessibilityService {
         if (!set) set = input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
         if (!set) {
             safeRecycle(root);
+            reportError("Không thể điền câu trả lời vào ô nhập.");
             return false;
         }
 
@@ -296,6 +300,7 @@ public class MessageAccessibilityService extends AccessibilityService {
         }
         if (!verified) {
             safeRecycle(root);
+            reportError("Đã điền nhưng không xác nhận được nội dung trong ô nhập.");
             return false;
         }
 
@@ -316,7 +321,16 @@ public class MessageAccessibilityService extends AccessibilityService {
             safeRecycle(edit);
             safeRecycle(currentInput);
         }
+        if (!clicked) reportError("Không tìm thấy hoặc không bấm được nút Gửi.");
         return clicked;
+    }
+
+    private void reportError(String message) {
+        String msg = shortError(message == null ? "Lỗi không xác định." : message);
+        postDebug("LỖI: " + msg);
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
+                android.widget.Toast.makeText(this, "AutoMessenger: " + msg,
+                        android.widget.Toast.LENGTH_LONG).show());
     }
 
     private AccessibilityNodeInfo findEditable(AccessibilityNodeInfo node) {
