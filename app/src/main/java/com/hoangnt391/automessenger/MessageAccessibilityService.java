@@ -271,28 +271,27 @@ public class MessageAccessibilityService extends AccessibilityService {
         });
     }
 
-    /** Chỉ dẫn nội bộ: giữ đúng ý người dùng và giao tiếp tự nhiên như người với người. */
+    /** Chỉ dẫn nội bộ: hiểu sắc thái trước rồi tiếp tục cuộc trò chuyện như người thật. */
     private String buildAshnaInstruction(String question) {
         String prompt = getSharedPreferences("AutoMessenger", 0)
                 .getString("active_prompt_text", "")
                 .trim();
         StringBuilder b = new StringBuilder();
-        b.append("Hãy trả lời trực tiếp nội dung người dùng gửi, bằng đúng ngôn ngữ và đúng ý họ. ");
-        b.append("Giữ ngữ cảnh cuộc trò chuyện và nói chuyện tự nhiên, thân thiện, có thiện cảm như hai người đang nhắn tin với nhau. ");
-        b.append("Nếu là tin nhắn đời thường hoặc đang tán tỉnh, hãy tiếp lời tự nhiên, tinh tế, không máy móc và không phân tích meta. ");
-        b.append("Không biến câu nói thành một câu hỏi khác, không tự dịch sang tiếng Anh. ");
-        b.append("Không nhắc đến AI, bot, mô hình, prompt, công cụ hoặc quy trình xử lý. ");
-        b.append("Nếu người dùng yêu cầu tìm kiếm, tra cứu, tổng hợp hoặc tìm lỗi/thông tin, hãy thực hiện việc đó và đưa ra kết quả cụ thể, đầy đủ, dễ đọc; ");
-        b.append("có thể chia mục và nêu các chi tiết quan trọng để người dùng tự lọc/copy. ");
-        b.append("Độ dài theo yêu cầu; nếu không nói độ dài thì trả lời vừa đủ cho tình huống. ");
-        b.append("Chỉ hỏi lại khi thực sự thiếu thông tin cần thiết.\n");
+        b.append("Hãy tiếp tục cuộc trò chuyện như một người đang nhắn tin với một người khác. ");
+        b.append("Trước tiên hãy hiểu ý định và sắc thái của tin nhắn: hỏi han, trêu đùa, thả thính, tâm sự, vui vẻ, khó chịu hoặc đang cần thông tin. ");
+        b.append("Sau đó đáp lại đúng ý và đúng sắc thái, như một tin nhắn thật, không phải một bài giải thích. ");
+        b.append("Với tin nhắn đời thường, câu ngắn hoặc câu trêu đùa, hãy ưu tiên một câu đáp tự nhiên, ngắn gọn và có cảm xúc; không diễn giải lại câu người kia vừa nói. ");
+        b.append("Nếu đang tán tỉnh hoặc đùa vui, có thể đáp lại có duyên, hơi trêu hoặc thả thính nhẹ khi phù hợp với mạch trò chuyện. ");
+        b.append("Không tự biến câu nói thành câu hỏi mới. Không tự dịch sang ngôn ngữ khác. ");
+        b.append("Không phân tích, không giải thích cách trả lời và không nhắc đến AI, bot, mô hình, prompt, công cụ hay quy trình xử lý. ");
+        b.append("Chỉ hỏi lại khi thật sự thiếu thông tin để tiếp tục cuộc trò chuyện. ");
+        b.append("Nếu tin nhắn thực sự yêu cầu tìm kiếm, tra cứu, tổng hợp hoặc tìm lỗi/thông tin thì mới trả lời đầy đủ, có cấu trúc; với tin nhắn trò chuyện bình thường, tuyệt đối không chuyển sang kiểu trả lời tra cứu.\n");
         if (!prompt.isEmpty()) {
             b.append("Phong cách bổ sung do người dùng chọn:\n").append(prompt).append("\n");
         }
-        b.append("Nội dung người dùng gửi nguyên văn:\n").append(question);
+        b.append("Tin nhắn mới cần đáp lại:\n").append(question);
         return b.toString();
     }
-
     /**
      * Creates Ashna WebView from the accessibility service itself.
      *
