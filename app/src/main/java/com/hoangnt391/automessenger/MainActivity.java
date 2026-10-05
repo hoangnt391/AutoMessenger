@@ -111,7 +111,7 @@ public class MainActivity extends Activity {
         ashnaKeyInput.setHint("AshnaAI API key (sk-...)");
         ashnaKeyInput.setSingleLine(true);
         ashnaKeyInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT
-                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+                | android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
         ashnaKeyInput.setText(p.getString("ashna_api_key", ""));
         aiCard.addView(ashnaKeyInput);
 
