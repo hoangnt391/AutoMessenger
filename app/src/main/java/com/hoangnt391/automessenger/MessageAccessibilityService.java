@@ -736,7 +736,7 @@ public class MessageAccessibilityService extends AccessibilityService {
                 + "var oldLines={};baseline.split(/\\n+/).forEach(function(x){x=x.trim();if(x)oldLines[x]=1;});"
                 + "var bad=/^(send|gửi|new chat|chat|settings|sign in|log in|copy|regenerate|stop|retry|model|agent|input|thinking|thought|generating|show more|show less|gpt\\s*6(?:\\.1)?\\s*sol|ashnaai(?:\\s+can\\s+make\\s+mistakes)?|how can i help you today\\?)$/i;"
                 + "var cand=[];"
-                + "var nodes=[].slice.call(document.querySelectorAll('[data-message-author-role=\"assistant\"],[data-role=\"assistant\"],[role=\"article\"],[data-message-id],[data-message],[data-testid*=\"message\"],[class*=\"message\"],[class*=\"Message\"]'));";
+                + "var nodes=[].slice.call(document.querySelectorAll('[data-message-author-role=\"assistant\"],[data-role=\"assistant\"],[role=\"article\"],[data-message-id],[data-message],[data-testid*=\"message\"],[class*=\"message\"],[class*=\"Message\"]'));"
                 + "nodes.forEach(function(n){var t=(n.innerText||n.textContent||'').trim();var low=t.toLowerCase();"
                 + "if(!t||t===q||oldLines[t]||bad.test(t)||t.length<2||t.length>5000)return;"
                 + "if(low.indexOf('bạn đang đóng vai người nhận tin nhắn')>=0||low.indexOf('tin nhắn của người kia')>=0||low.indexOf('không phân tích, không giải thích')>=0||low.indexOf('chỉ xuất đúng nội dung tin nhắn')>=0)return;"
