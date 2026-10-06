@@ -313,13 +313,14 @@ public class MessageAccessibilityService extends AccessibilityService {
                 .trim();
 
         StringBuilder b = new StringBuilder();
-        b.append("Đây là cuộc trao đổi NGƯỜI VỚI NGƯỜI. Hãy đóng vai đúng người đang nhắn, không phải trợ lý tư vấn. ");
-        b.append("Nhiệm vụ là đọc đúng các tin nhắn thật trong cuộc trò chuyện, hiểu người kia đang nói gì, cảm xúc gì, đang trả lời câu nào và mối quan hệ hiện tại, rồi viết đúng MỘT câu trả lời tiếp theo để gửi cho người kia. ");
-        b.append("Chỉ dùng ngữ cảnh hội thoại đã lấy từ màn hình chat và tin nhắn mới nhất. Không tự bịa thêm sự kiện, tên, lịch sử hay ý định không có trong ngữ cảnh. Nếu có nhiều tin liên tiếp của người kia, coi chúng là một lượt nói và trả lời đủ ý, không trả lời từng câu riêng lẻ. ");
-        b.append("PROMPT/PHONG CÁCH người dùng cung cấp chỉ là kim chỉ nam về tính cách, mục tiêu và cách nói chuyện; tuyệt đối không chép prompt thành câu trả lời và không để prompt lấn át nội dung người kia vừa nói. ");
-        b.append("Ưu tiên câu trả lời giống người thật: tự nhiên, đúng giọng cuộc trò chuyện, ngắn vừa đủ, bắt đúng chi tiết vừa được nói, có cảm xúc phù hợp. Nếu đang làm quen/tán tỉnh thì chủ động, có duyên, trêu hoặc flirt nhẹ khi hợp cảnh; không sến, không vồ vập, không dùng văn mẫu. Nếu người kia chỉ nói 'ừ/haha/ok' thì đáp tự nhiên và ngắn. Nếu họ hỏi trực tiếp thì trả lời đúng câu hỏi trước rồi mới mở tiếp câu chuyện nếu cần. ");
-        b.append("Không lặp lại câu người kia, không hỏi lại điều vừa được nói rõ, không hỏi dồn dập, không biến thành phỏng vấn, không tư vấn khách hàng, không giải thích suy nghĩ. ");
-        b.append("Chỉ xuất đúng nội dung sẽ gửi cho người kia, không tiêu đề, không lời dẫn, không ngoặc kép, không phân tích, không Thought for a few seconds, không Thinking. Giữ đúng ngôn ngữ và độ dài tự nhiên.\n");
+        b.append("Đây là cuộc trò chuyện NGƯỜI VỚI NGƯỜI. Đóng vai đúng người đang nhắn, không phải trợ lý. ");
+        b.append("Đọc NGỮ CẢNH THẬT trước, rồi trả lời đúng tin nhắn mới nhất. Chỉ dùng những gì có trong ngữ cảnh; không bịa người, tên, sự kiện, lịch sử hay ý định. ");
+        b.append("Tin nhắn mới nhất là ưu tiên tuyệt đối. Nếu tin mới chỉ là lời chào hoặc phản hồi xã giao rất ngắn, đáp tự nhiên và ngắn tương xứng, KHÔNG tự thêm câu hỏi để kéo chuyện. ");
+        b.append("Nếu người kia hỏi gì thì trả lời đúng câu đó trước. Nếu họ gửi nhiều tin liên tiếp thì coi là một lượt nói và đáp đủ ý trong một tin. ");
+        b.append("Chỉ chủ động mở chủ đề, trêu hoặc flirt khi nội dung trước đó thực sự có cơ sở; không dùng văn mẫu, không cố tán tỉnh mọi tin nhắn. ");
+        b.append("Phong cách người dùng chỉ là kim chỉ nam về giọng điệu và mục tiêu, không được phép thay thế nội dung người kia vừa nói. ");
+        b.append("Không lặp lại câu người kia, không hỏi lại điều đã rõ, không hỏi dồn, không biến thành phỏng vấn. ");
+        b.append("Chỉ xuất đúng MỘT câu trả lời sẽ gửi. Không tiêu đề, không lời dẫn, không ngoặc kép, không phân tích, không Thinking/Thought/Reasoning. Giữ nguyên ngôn ngữ và độ dài tự nhiên của cuộc trò chuyện.\n");
         if (!userStyle.isEmpty()) {
             b.append("Phong cách người dùng mong muốn: ").append(userStyle).append("\n");
         }
@@ -359,6 +360,14 @@ public class MessageAccessibilityService extends AccessibilityService {
             out.append(compact.get(i));
         }
         String result = out.toString();
+        String latest = normalize(latestIncoming);
+        if (!latest.isEmpty()) {
+            String latestLine = "Người kia: " + latest;
+            if (!result.contains(latestLine)) {
+                if (!result.isEmpty()) result += "\n";
+                result += latestLine;
+            }
+        }
         return result.length() > 6000 ? result.substring(result.length() - 6000) : result;
     }
 
@@ -851,7 +860,7 @@ public class MessageAccessibilityService extends AccessibilityService {
         for (String line : lines) {
             String x = removeAshnaDisclaimer(line).trim();
             if (x.isEmpty() || x.equals(question) || isWebUiText(x) || isAshnaModelText(x) || isReasoningLeak(x)) continue;
-            if (out.length() > 0) out.append("\\n");
+            if (out.length() > 0) out.append("\n");
             out.append(x);
             if (out.length() > 3500) break;
         }
@@ -880,8 +889,8 @@ public class MessageAccessibilityService extends AccessibilityService {
         String in = normalize(incoming), out = normalize(answer);
         if (in.isEmpty() || out.isEmpty()) return;
         StringBuilder sb = new StringBuilder(ashnaConversationContext == null ? "" : ashnaConversationContext.trim());
-        if (sb.length() > 0) sb.append("\\n");
-        sb.append("Người kia: ").append(in).append("\\nMình: ").append(out);
+        if (sb.length() > 0) sb.append("\n");
+        sb.append("Người kia: ").append(in).append("\nMình: ").append(out);
         String result = sb.toString();
         ashnaConversationContext = result.length() > 8000 ? result.substring(result.length() - 8000) : result;
     }
@@ -1139,6 +1148,15 @@ public class MessageAccessibilityService extends AccessibilityService {
     }
 
     private boolean isLikelyOutgoing(AccessibilityNodeInfo node) {
+        if (node == null) return false;
+        String meta = (value(node.getContentDescription()) + " "
+                + value(node.getViewIdResourceName()) + " "
+                + value(node.getText())).toLowerCase(Locale.ROOT);
+        if (meta.contains("you sent") || meta.contains("sent by you")
+                || meta.contains("bạn đã gửi") || meta.contains("đã gửi")
+                || meta.contains("message from you") || meta.contains("outgoing")) {
+            return true;
+        }
         Rect r = new Rect();
         node.getBoundsInScreen(r);
         if (r.right <= r.left) return false;
