@@ -310,11 +310,12 @@ public class MessageAccessibilityService extends AccessibilityService {
                 .trim();
 
         StringBuilder b = new StringBuilder();
-        b.append("Bạn đang nhắn tin thay cho một người thật trong một cuộc trò chuyện đang diễn ra. ");
-        b.append("Hãy đọc toàn bộ ngữ cảnh gần đây để hiểu quan hệ, giọng điệu, chủ đề và ý định trước khi trả lời. Tin nhắn mới là phần tiếp theo của cuộc trò chuyện, không phải một câu hỏi độc lập. ");
-        b.append("PROMPT/PHONG CÁCH người dùng cung cấp chỉ là kim chỉ nam về tính cách, mục tiêu và cách nói chuyện; không chép prompt thành câu trả lời và không làm theo máy móc nếu trái với ngữ cảnh thực tế. ");
-        b.append("Ưu tiên câu trả lời giống người thật: tự nhiên, ngắn vừa đủ, bắt đúng ý người kia, có thể trêu nhẹ hoặc flirt khi hợp cảnh, biết đẩy câu chuyện đi tiếp, không văn mẫu. Nếu người kia nói 'ừ', 'haha', 'ok' thì đáp ngắn. Nếu họ kể chuyện thì phản hồi đúng chi tiết vừa kể. Nếu họ đổi chủ đề thì theo chủ đề mới. ");
-        b.append("Không lặp lại nguyên văn, không hỏi lại máy móc, không giải thích cách suy nghĩ, không viết bài dài, không biến thành hỗ trợ khách hàng, không nhắc đến AI/bot/model/prompt/công cụ. ");
+        b.append("Đây là cuộc trao đổi NGƯỜI VỚI NGƯỜI. Hãy đóng vai đúng người đang nhắn, không phải trợ lý tư vấn. ");
+        b.append("Nhiệm vụ là đọc đúng các tin nhắn thật trong cuộc trò chuyện, hiểu người kia đang nói gì, cảm xúc gì, đang trả lời câu nào và mối quan hệ hiện tại, rồi viết đúng MỘT câu trả lời tiếp theo để gửi cho người kia. ");
+        b.append("Chỉ dùng ngữ cảnh hội thoại đã lấy từ màn hình chat và tin nhắn mới nhất. Không tự bịa thêm sự kiện, tên, lịch sử hay ý định không có trong ngữ cảnh. Nếu có nhiều tin liên tiếp của người kia, coi chúng là một lượt nói và trả lời đủ ý, không trả lời từng câu riêng lẻ. ");
+        b.append("PROMPT/PHONG CÁCH người dùng cung cấp chỉ là kim chỉ nam về tính cách, mục tiêu và cách nói chuyện; tuyệt đối không chép prompt thành câu trả lời và không để prompt lấn át nội dung người kia vừa nói. ");
+        b.append("Ưu tiên câu trả lời giống người thật: tự nhiên, đúng giọng cuộc trò chuyện, ngắn vừa đủ, bắt đúng chi tiết vừa được nói, có cảm xúc phù hợp. Nếu đang làm quen/tán tỉnh thì chủ động, có duyên, trêu hoặc flirt nhẹ khi hợp cảnh; không sến, không vồ vập, không dùng văn mẫu. Nếu người kia chỉ nói 'ừ/haha/ok' thì đáp tự nhiên và ngắn. Nếu họ hỏi trực tiếp thì trả lời đúng câu hỏi trước rồi mới mở tiếp câu chuyện nếu cần. ");
+        b.append("Không lặp lại câu người kia, không hỏi lại điều vừa được nói rõ, không hỏi dồn dập, không biến thành phỏng vấn, không tư vấn khách hàng, không giải thích suy nghĩ. ");
         b.append("Chỉ xuất đúng nội dung sẽ gửi cho người kia, không tiêu đề, không lời dẫn, không ngoặc kép, không phân tích, không Thought for a few seconds, không Thinking. Giữ đúng ngôn ngữ và độ dài tự nhiên.\n");
         if (!userStyle.isEmpty()) {
             b.append("Phong cách người dùng mong muốn: ").append(userStyle).append("\n");
@@ -334,10 +335,8 @@ public class MessageAccessibilityService extends AccessibilityService {
         collectConversationLines(root, lines);
         if (lines.isEmpty()) return "";
 
-        lines.sort((a, b) -> {
-            if (a.top != b.top) return Integer.compare(a.top, b.top);
-            return Float.compare(a.centerX, b.centerX);
-        });
+        // Giữ đúng thứ tự dọc của các bong bóng chat; không sắp theo vị trí ngang.
+        lines.sort((a, b) -> Integer.compare(a.top, b.top));
 
         List<String> compact = new ArrayList<>();
         String previous = "";
@@ -366,10 +365,11 @@ public class MessageAccessibilityService extends AccessibilityService {
         String cls = value(node.getClassName()).toLowerCase(Locale.ROOT);
         if (node.isVisibleToUser() && !node.isEditable() && !text.isEmpty()
                 && text.length() <= 1200 && cls.contains("textview")
-                && !isUiText(text)) {
+                && !isUiText(text) && !isChatHeaderOrComposerText(text)) {
             Rect r = new Rect();
             node.getBoundsInScreen(r);
-            if (r.width() > 0 && r.height() > 0 && r.top > 80) {
+            if (r.width() > 0 && r.height() > 0 && r.top > 80
+                    && r.bottom < getResources().getDisplayMetrics().heightPixels - dp(80)) {
                 out.add(new ConversationLine(text, (r.left + r.right) / 2f,
                         r.top, isLikelyOutgoing(node)));
             }
@@ -377,6 +377,17 @@ public class MessageAccessibilityService extends AccessibilityService {
         for (int i = 0; i < node.getChildCount(); i++) {
             collectConversationLines(node.getChild(i), out);
         }
+    }
+
+    private boolean isChatHeaderOrComposerText(String text) {
+        String x = normalize(text).toLowerCase(Locale.ROOT);
+        if (x.isEmpty()) return true;
+        return x.equals("tin nhắn") || x.equals("nhắn tin") || x.equals("message")
+                || x.equals("type a message") || x.equals("send message")
+                || x.equals("tìm kiếm") || x.equals("search") || x.equals("back")
+                || x.equals("quay lại") || x.equals("online") || x.equals("đang hoạt động")
+                || x.equals("đã xem") || x.equals("seen") || x.equals("đang nhập...")
+                || x.equals("typing...");
     }
 
     private static final class ConversationLine {
