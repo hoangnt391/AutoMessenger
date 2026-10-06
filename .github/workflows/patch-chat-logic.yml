@@ -1,0 +1,105 @@
+name: Patch chat context logic
+
+on:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  patch:
+    if: !contains(github.event.head_commit.message, '[chatfix]')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch conversation logic
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          p = Path("app/src/main/java/com/hoangnt391/automessenger/MessageAccessibilityService.java")
+          s = p.read_text(encoding="utf-8")
+          original = s
+
+          # 1) Make the latest detected incoming message authoritative.
+          old = '''        String result = out.toString();
+        return result.length() > 6000 ? result.substring(result.length() - 6000) : result;'''
+          new = '''        String result = out.toString();
+        String latest = normalize(latestIncoming);
+        if (!latest.isEmpty()) {
+            String latestLine = "Người kia: " + latest;
+            if (!result.contains(latestLine)) {
+                if (!result.isEmpty()) result += "\\n";
+                result += latestLine;
+            }
+        }
+        return result.length() > 6000 ? result.substring(result.length() - 6000) : result;'''
+          if old not in s:
+              raise SystemExit("context anchor not found")
+          s = s.replace(old, new, 1)
+
+          # 2) Replace the over-directive prompt with a compact decision policy.
+          start = s.index('        StringBuilder b = new StringBuilder();', s.index('private String buildAshnaInstruction'))
+          end = s.index('        if (!userStyle.isEmpty()) {', start)
+          replacement = '''        StringBuilder b = new StringBuilder();
+        b.append("Đây là cuộc trò chuyện NGƯỜI VỚI NGƯỜI. Đóng vai đúng người đang nhắn, không phải trợ lý. ");
+        b.append("Đọc NGỮ CẢNH THẬT trước, rồi trả lời đúng tin nhắn mới nhất. Chỉ dùng những gì có trong ngữ cảnh; không bịa người, tên, sự kiện, lịch sử hay ý định. ");
+        b.append("Tin nhắn mới nhất là ưu tiên tuyệt đối. Nếu tin mới chỉ là lời chào hoặc phản hồi xã giao rất ngắn, đáp tự nhiên và ngắn tương xứng, KHÔNG tự thêm câu hỏi để kéo chuyện. ");
+        b.append("Nếu người kia hỏi gì thì trả lời đúng câu đó trước. Nếu họ gửi nhiều tin liên tiếp thì coi là một lượt nói và đáp đủ ý trong một tin. ");
+        b.append("Chỉ chủ động mở chủ đề, trêu hoặc flirt khi nội dung trước đó thực sự có cơ sở; không dùng văn mẫu, không cố tán tỉnh mọi tin nhắn. ");
+        b.append("Phong cách người dùng chỉ là kim chỉ nam về giọng điệu và mục tiêu, không được phép thay thế nội dung người kia vừa nói. ");
+        b.append("Không lặp lại câu người kia, không hỏi lại điều đã rõ, không hỏi dồn, không biến thành phỏng vấn. ");
+        b.append("Chỉ xuất đúng MỘT câu trả lời sẽ gửi. Không tiêu đề, không lời dẫn, không ngoặc kép, không phân tích, không Thinking/Thought/Reasoning. Giữ nguyên ngôn ngữ và độ dài tự nhiên của cuộc trò chuyện.\\n");
+'''
+          s = s[:start] + replacement + s[end:]
+
+          # 3) Conversation memory must contain real newlines, not literal backslash-n.
+          s = s.replace('sb.append("\\\\n");', 'sb.append("\\n");')
+          s = s.replace('append(in).append("\\\\nMình: ")', 'append(in).append("\\nMình: ")')
+
+          # 4) Cleaned multi-line Ashna answers should also use real newlines.
+          s = s.replace('out.append("\\\\n");', 'out.append("\\n");')
+
+          # 5) Improve outgoing detection using accessibility labels before geometry.
+          old_method = '''    private boolean isLikelyOutgoing(AccessibilityNodeInfo node) {
+        Rect r = new Rect();
+        node.getBoundsInScreen(r);
+        if (r.right <= r.left) return false;
+        int center = (r.left + r.right) / 2;
+        return center > getResources().getDisplayMetrics().widthPixels * 0.58f;
+    }'''
+          new_method = '''    private boolean isLikelyOutgoing(AccessibilityNodeInfo node) {
+        if (node == null) return false;
+        String meta = (value(node.getContentDescription()) + " "
+                + value(node.getViewIdResourceName()) + " "
+                + value(node.getText())).toLowerCase(Locale.ROOT);
+        if (meta.contains("you sent") || meta.contains("sent by you")
+                || meta.contains("bạn đã gửi") || meta.contains("đã gửi")
+                || meta.contains("message from you") || meta.contains("outgoing")) {
+            return true;
+        }
+        Rect r = new Rect();
+        node.getBoundsInScreen(r);
+        if (r.right <= r.left) return false;
+        int center = (r.left + r.right) / 2;
+        return center > getResources().getDisplayMetrics().widthPixels * 0.58f;
+    }'''
+          if old_method not in s:
+              raise SystemExit("outgoing method anchor not found")
+          s = s.replace(old_method, new_method, 1)
+
+          if s == original:
+              raise SystemExit("No changes made")
+          p.write_text(s, encoding="utf-8")
+          print("patched", p)
+
+      - name: Commit patch
+        run: |
+          git config user.name "AutoMessenger Bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/hoangnt391/automessenger/MessageAccessibilityService.java
+          git diff --cached --check
+          git commit -m "[chatfix] Fix context priority and natural short replies"
+          git push
