@@ -550,10 +550,6 @@ public class MessageAccessibilityService extends AccessibilityService {
                 ashnaHiddenWebView.setAlpha(1f);
                 ashnaHiddenWebView.setFocusable(true);
                 ashnaHiddenWebView.setFocusableInTouchMode(true);
-                ashnaWebWindowParams.flags =
-                        android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE == 0
-                                ? 0
-                                : android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
                 // Login overlay must accept taps and keyboard input.
                 ashnaWebWindowParams.flags = android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
                 try { ashnaWebWindowManager.updateViewLayout(ashnaHiddenWebView, ashnaWebWindowParams); }
@@ -681,20 +677,17 @@ public class MessageAccessibilityService extends AccessibilityService {
                 + "var s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'};"
                 + "var els=[].slice.call(document.querySelectorAll('textarea,input,[contenteditable=\"true\"]'));"
                 + "els=els.filter(function(e){return vis(e)&&!e.disabled&&e.type!=='hidden'});"
-                + "var body=document.body?document.body.innerText:'';
-                var login=/sign in|log in|đăng nhập|login/i.test(body);
-                // Ashna may reopen the last/default GPT-6 Sol even when the URL is
-                // opened with the newer model hint. Try the visible model picker once
-                // before submitting, then let the normal polling continue.
-                var modelWanted=/GPT\\s*6\\.1\\s*Sol/i;
-                var modelOld=/GPT\\s*6\\s*Sol/i;
-                var buttons=[].slice.call(document.querySelectorAll('button,[role="button"]')).filter(vis);
-                var oldBtn=buttons.find(function(x){return modelOld.test((x.innerText||x.getAttribute('aria-label')||'')) && !modelWanted.test((x.innerText||''));});
-                if(oldBtn && !modelWanted.test(body)){try{oldBtn.click();}catch(e){}}
-                var choices=[].slice.call(document.querySelectorAll('button,[role="button"],[role="menuitem"],li')).filter(vis);
-                var wanted=choices.find(function(x){return modelWanted.test((x.innerText||x.getAttribute('aria-label')||''));});
-                if(wanted){try{wanted.click();}catch(e){}}
-                login=/sign in|log in|đăng nhập|login/i.test(document.body?document.body.innerText:'');"
+                + "var body=document.body?document.body.innerText:'';"
+                + "var login=/sign in|log in|đăng nhập|login/i.test(body);"
+                + "var modelWanted=/GPT\\s*6\\.1\\s*Sol/i;"
+                + "var modelOld=/GPT\\s*6\\s*Sol/i;"
+                + "var buttons=[].slice.call(document.querySelectorAll('button,[role=\\"button\\"]')).filter(vis);"
+                + "var oldBtn=buttons.find(function(x){var z=(x.innerText||x.getAttribute('aria-label')||'');return modelOld.test(z)&&!modelWanted.test(z);});"
+                + "if(oldBtn&&!modelWanted.test(body)){try{oldBtn.click();}catch(e){}}"
+                + "var choices=[].slice.call(document.querySelectorAll('button,[role=\\"button\\"],[role=\\"menuitem\\"],li')).filter(vis);"
+                + "var wanted=choices.find(function(x){var z=(x.innerText||x.getAttribute('aria-label')||'');return modelWanted.test(z);});"
+                + "if(wanted){try{wanted.click();}catch(e){}}"
+                + "login=/sign in|log in|đăng nhập|login/i.test(document.body?document.body.innerText:'');"
                 + "var input=els.sort(function(a,b){return b.getBoundingClientRect().bottom-a.getBoundingClientRect().bottom})[0];"
                 + "if(login&&!input)return 'LOGIN';if(!input)return 'NO_INPUT';"
                 + "var q=" + jsQuote(question) + ";"
