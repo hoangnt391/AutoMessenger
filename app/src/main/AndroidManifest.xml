@@ -14,7 +14,7 @@
         android:allowBackup="false"
         android:supportsRtl="true">
 
-        <activity android:name=".AshnaLoginActivity" android:exported="false" android:screenOrientation="unspecified" />
+        <activity android:name=".AshnaLoginActivity" android:exported="false" android:screenOrientation="unspecified" android:launchMode="singleTop" android:excludeFromRecents="false" />
 
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
