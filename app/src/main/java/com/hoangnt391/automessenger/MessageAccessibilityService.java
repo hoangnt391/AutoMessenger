@@ -309,19 +309,13 @@ public class MessageAccessibilityService extends AccessibilityService {
                 .getString("active_prompt_text", "")
                 .trim();
 
-        if (userStyle.startsWith("Hãy tiếp tục cuộc trò chuyện")
-                || userStyle.contains("Tin nhắn mới cần đáp lại:")
-                || userStyle.contains("Không nhắc đến AI, bot, mô hình")) {
-            userStyle = "Trả lời bằng tiếng Việt, tự nhiên, thân thiện và tinh tế.";
-        }
-
         StringBuilder b = new StringBuilder();
         b.append("Bạn đang nhắn tin thay cho một người thật trong một cuộc trò chuyện đang diễn ra. ");
-        b.append("Hãy đọc NGỮ CẢNH gần đây trước rồi mới trả lời tin nhắn mới. Đừng xử lý câu cuối như một câu hỏi độc lập nếu ngữ cảnh cho thấy nó đang tiếp nối chuyện trước. ");
-        b.append("Mục tiêu là một câu trả lời giống người thật nhắn cho bạn bè/người quen: tự nhiên, có cảm xúc phù hợp, có thể đùa hoặc trêu lại khi hợp cảnh, nhưng không cố tỏ ra dễ thương hay thả thính ở mọi câu. ");
-        b.append("Nếu người kia hỏi chuyện đời thường, trả lời trực tiếp từ góc nhìn của người đang nhắn. Nếu họ nói ngắn như 'ừ', 'haha', 'ok' thì cũng chỉ cần đáp ngắn và tự nhiên. Nếu họ buồn, giận hoặc kể chuyện khó chịu thì phản hồi có sự đồng cảm. Nếu họ đổi chủ đề thì theo chủ đề mới. ");
-        b.append("Không lặp lại nguyên văn tin nhắn của người kia. Không hỏi lại máy móc. Không biến câu trả lời thành văn bản hỗ trợ khách hàng, bài giải hay danh sách. Không nhắc đến AI, bot, mô hình, prompt hoặc công cụ. ");
-        b.append("Quan trọng nhất: chỉ xuất đúng nội dung tin nhắn sẽ gửi cho người kia, không thêm tiêu đề, lời dẫn, dấu ngoặc kép, phân tích hay chú thích. Giữ đúng ngôn ngữ của cuộc trò chuyện. Độ dài phải tự nhiên với ngữ cảnh; không tự nhiên viết dài chỉ vì có thể viết dài.\n");
+        b.append("Hãy đọc toàn bộ ngữ cảnh gần đây để hiểu quan hệ, giọng điệu, chủ đề và ý định trước khi trả lời. Tin nhắn mới là phần tiếp theo của cuộc trò chuyện, không phải một câu hỏi độc lập. ");
+        b.append("PROMPT/PHONG CÁCH người dùng cung cấp chỉ là kim chỉ nam về tính cách, mục tiêu và cách nói chuyện; không chép prompt thành câu trả lời và không làm theo máy móc nếu trái với ngữ cảnh thực tế. ");
+        b.append("Ưu tiên câu trả lời giống người thật: tự nhiên, ngắn vừa đủ, bắt đúng ý người kia, có thể trêu nhẹ hoặc flirt khi hợp cảnh, biết đẩy câu chuyện đi tiếp, không văn mẫu. Nếu người kia nói 'ừ', 'haha', 'ok' thì đáp ngắn. Nếu họ kể chuyện thì phản hồi đúng chi tiết vừa kể. Nếu họ đổi chủ đề thì theo chủ đề mới. ");
+        b.append("Không lặp lại nguyên văn, không hỏi lại máy móc, không giải thích cách suy nghĩ, không viết bài dài, không biến thành hỗ trợ khách hàng, không nhắc đến AI/bot/model/prompt/công cụ. ");
+        b.append("Chỉ xuất đúng nội dung sẽ gửi cho người kia, không tiêu đề, không lời dẫn, không ngoặc kép, không phân tích, không Thought for a few seconds, không Thinking. Giữ đúng ngôn ngữ và độ dài tự nhiên.\n");
         if (!userStyle.isEmpty()) {
             b.append("Phong cách người dùng mong muốn: ").append(userStyle).append("\n");
         }
@@ -667,9 +661,9 @@ public class MessageAccessibilityService extends AccessibilityService {
 
     private void driveHiddenAshnaWeb(final String question, final int attempt) {
         if (!ashnaWebBusy || ashnaHiddenWebView == null) return;
-        if (attempt > 45) {
+        if (attempt > 20) {
             finishAshnaWeb(null,
-                    "Không tìm thấy ô nhập Ashna Web sau 45 lần kiểm tra. Hãy đăng nhập Ashna Web 1 lần trong ứng dụng.");
+                    "Ashna Web chưa sẵn sàng sau khoảng 10 giây. Hãy kiểm tra phiên đăng nhập hoặc thử lại.");
             return;
         }
         String js = "javascript:(function(){"
@@ -724,14 +718,14 @@ public class MessageAccessibilityService extends AccessibilityService {
                 } catch (Exception ignored) {}
             }
             new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
-                    () -> driveHiddenAshnaWeb(question, attempt + 1), 700L);
+                    () -> driveHiddenAshnaWeb(question, attempt + 1), 500L);
         });
     }
 
     private void pollHiddenAshnaAnswer(final String question, final int attempt) {
         if (!ashnaWebBusy || ashnaHiddenWebView == null) return;
-        if (attempt > 70) {
-            finishAshnaWeb(null, "Ashna Web không đọc được câu trả lời sau 70 lần kiểm tra.");
+        if (attempt > 28) {
+            finishAshnaWeb(null, "Ashna Web không lấy được câu trả lời cuối sau khoảng 22 giây.");
             return;
         }
         String js = "javascript:(function(){"
@@ -756,7 +750,7 @@ public class MessageAccessibilityService extends AccessibilityService {
                 String stable = answer.trim();
                 if (isAshnaTransientText(stable)) {
                     new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
-                            () -> pollHiddenAshnaAnswer(question, attempt + 1), 850L);
+                            () -> pollHiddenAshnaAnswer(question, attempt + 1), 700L);
                     return;
                 }
                 if (stable.equals(ashnaLastCandidate)) {
@@ -771,7 +765,7 @@ public class MessageAccessibilityService extends AccessibilityService {
                 }
             }
             new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
-                    () -> pollHiddenAshnaAnswer(question, attempt + 1), 850L);
+                    () -> pollHiddenAshnaAnswer(question, attempt + 1), 700L);
         });
     }
 
@@ -859,10 +853,12 @@ public class MessageAccessibilityService extends AccessibilityService {
         if (text == null) return true;
         String x = text.trim().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
         return x.equals("thought for a few seconds") || x.startsWith("thought for ")
-                || x.equals("thought") || x.equals("thinking")
+                || x.equals("thought") || x.equals("thinking") || x.startsWith("thinking ")
                 || x.startsWith("thinking...") || x.startsWith("thinking…")
-                || x.equals("reasoning") || x.equals("analysis") || x.startsWith("analysis:")
-                || x.startsWith("chain of thought") || x.contains("here is my reasoning");
+                || x.equals("reasoning") || x.startsWith("reasoning:")
+                || x.equals("analysis") || x.startsWith("analysis:")
+                || x.startsWith("chain of thought") || x.contains("here is my reasoning")
+                || x.startsWith("i'll think") || x.startsWith("let me think");
     }
 
     private String sanitizeOutgoingAnswer(String answer) {
