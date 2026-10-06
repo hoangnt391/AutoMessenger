@@ -14,7 +14,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class MessageAccessibilityService extends AccessibilityService {
@@ -36,6 +35,9 @@ public class MessageAccessibilityService extends AccessibilityService {
     private String lastIncoming = "";
     private String lastSent = "";
     private long lastReplyAt = 0L;
+    // Chặn Accessibility phát lại chính tin vừa gửi thành một tin đến mới.
+    private String lastSentNormalized = "";
+    private long suppressIncomingUntil = 0L;
     private volatile boolean ashnaWebBusy = false;
     private String ashnaWebTargetPackage = "";
     private String ashnaWebQuestion = "";
@@ -91,6 +93,30 @@ public class MessageAccessibilityService extends AccessibilityService {
     }
 
     public static boolean isRunning() { return instance != null; }
+    public static boolean isAccessibilityEnabled(android.content.Context context) {
+        if (context == null) return false;
+        if (instance != null) return true;
+        try {
+            android.view.accessibility.AccessibilityManager am =
+                    (android.view.accessibility.AccessibilityManager)
+                            context.getSystemService(android.content.Context.ACCESSIBILITY_SERVICE);
+            if (am == null || !am.isEnabled()) return false;
+            java.util.List<android.accessibilityservice.AccessibilityServiceInfo> enabled =
+                    am.getEnabledAccessibilityServiceList(
+                            android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK);
+            String targetPackage = context.getPackageName();
+            String targetClass = MessageAccessibilityService.class.getName();
+            for (android.accessibilityservice.AccessibilityServiceInfo info : enabled) {
+                if (info == null || info.getResolveInfo() == null
+                        || info.getResolveInfo().serviceInfo == null) continue;
+                android.content.pm.ServiceInfo si = info.getResolveInfo().serviceInfo;
+                if (targetPackage.equals(si.packageName)
+                        && targetClass.equals(si.name)) return true;
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
 
     public static MessageAccessibilityService getInstance() { return instance; }
 
@@ -120,7 +146,7 @@ public class MessageAccessibilityService extends AccessibilityService {
     private void handleDetectedIncoming(String incoming) {
         if (incoming == null || incoming.isEmpty()) return;
         if (!getSharedPreferences("AutoMessenger", 0).getBoolean("auto", false)) return;
-        if (incoming.equals(lastSent)) return;
+        if (isOwnRecentMessage(incoming)) return;
         if (incoming.length() > 4000) incoming = incoming.substring(0, 4000);
         queueIncomingMessage(incoming);
     }
@@ -227,7 +253,7 @@ public class MessageAccessibilityService extends AccessibilityService {
         if (incoming == null || incoming.trim().isEmpty()) return;
         incoming = incoming.trim();
 
-        if (incoming.equals(lastSent)) return;
+        if (isOwnRecentMessage(incoming)) return;
         if (incoming.length() > 4000) incoming = incoming.substring(0, 4000);
 
         queueIncomingMessage(incoming);
@@ -271,7 +297,9 @@ public class MessageAccessibilityService extends AccessibilityService {
             new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
                 if (sendMessage(clean)) {
                     lastSent = clean;
+                    lastSentNormalized = normalize(clean);
                     lastReplyAt = System.currentTimeMillis();
+                    suppressIncomingUntil = lastReplyAt + 7000L;
                     postDebug("Đã gửi câu trả lời qua Ashna Web Free chạy ngầm.");
                 }
             });
@@ -1035,6 +1063,16 @@ public class MessageAccessibilityService extends AccessibilityService {
         }
         if (!clicked) reportError("Không tìm thấy hoặc không bấm được nút Gửi.");
         return clicked;
+    }
+
+    private boolean isOwnRecentMessage(String incoming) {
+        if (incoming == null || incoming.trim().isEmpty()) return false;
+        String x = normalize(incoming);
+        long now = System.currentTimeMillis();
+        if (!x.isEmpty() && x.equals(lastSentNormalized) && now <= suppressIncomingUntil) {
+            return true;
+        }
+        return !x.isEmpty() && x.equals(normalize(lastSent)) && now - lastReplyAt <= 7000L;
     }
 
     private void reportError(String message) {
