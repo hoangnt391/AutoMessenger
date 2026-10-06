@@ -28,12 +28,14 @@ Không cần Gemini API key hoặc ChatGPT API key.
 - Base URL: https://api.ashna.ai/v1/api
 - The app does not open an AI app/tab for each message.
 - API key and model are entered in the app and stored locally; no API key is committed to this repository.
-- Automatic replies keep the smart debounce: 5 seconds for an isolated message; if more messages arrive, the quiet period becomes 10 seconds and resets while messages continue.
-- A burst is sent to AshnaAI as one request and the result is sent back through Accessibility.
+- Automatic replies use a 3-second quiet period: every new incoming message resets the timer; a burst is sent to Ashna Web Free as one request.
+- The app acts as the intermediary: read incoming chat -> aggregate -> wait 3s -> send context + latest messages to Ashna GPT-6.1 Sol -> extract only the final reply -> write into the original chat composer -> press Send.
+- Messages generated and sent by AutoMessenger are suppressed from the incoming queue to prevent self-reply loops.
+- If several messages arrive while Ashna is answering, they are held and processed as the next conversation turn.
 
 
 ## Ashna Web Free
-AutoMessenger hỗ trợ điều khiển AshnaAI Web Free qua Android Accessibility; đăng nhập AshnaAI trên trình duyệt trước khi bật tự động.
+AutoMessenger hỗ trợ điều khiển AshnaAI Web Free qua Android Accessibility; đăng nhập AshnaAI một lần trước khi bật tự động. WebView trung gian chạy ngầm, không chuyển màn hình khỏi ứng dụng chat khi xử lý.
 
 
 - Ashna Web login overlay: full-screen touch/scroll enabled with a dedicated close button.
