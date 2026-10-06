@@ -412,7 +412,7 @@ public class AutoMessengerService extends Service {
 
         TextView status = new TextView(this);
         boolean autoOn = getSharedPreferences("AutoMessenger", 0).getBoolean("auto", false);
-        status.setText((MessageAccessibilityService.isRunning() ? "● Trợ năng OK" : "⚠ Chưa bật Trợ năng") + "  •  Ashna Web Free");
+        status.setText((MessageAccessibilityService.isAccessibilityEnabled(this) ? "● Trợ năng OK" : "⚠ Chưa bật Trợ năng") + "  •  Ashna Web Free");
         status.setTextSize(12);
         status.setTextColor(0xFF77717D);
         status.setPadding(0, (int)(3*d), 0, (int)(8*d));
@@ -615,7 +615,7 @@ public class AutoMessengerService extends Service {
             p.edit().putBoolean("auto", next).apply();
             if (next && projection != null && imageReader == null) startScreenCapture();
             if (!next) stopScreenCaptureOnly();
-            status.setText((MessageAccessibilityService.isRunning() ? "● Trợ năng OK" : "⚠ Chưa bật Trợ năng") + "  •  Ashna Web Free  •  " + (next ? "Tự động ON" : "Tự động OFF"));
+            status.setText((MessageAccessibilityService.isAccessibilityEnabled(this) ? "● Trợ năng OK" : "⚠ Chưa bật Trợ năng") + "  •  Ashna Web Free  •  " + (next ? "Tự động ON" : "Tự động OFF"));
             toggle.setText(next ? "Tắt tự động trả lời" : "Bật tự động trả lời");
         });
         panel.addView(toggle);
