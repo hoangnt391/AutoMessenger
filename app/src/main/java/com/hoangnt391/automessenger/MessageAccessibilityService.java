@@ -933,7 +933,19 @@ public class MessageAccessibilityService extends AccessibilityService {
         String pkg = root.getPackageName().toString();
         if (!isSupportedChatPackage(pkg)) {
             safeRecycle(root);
-            reportError("Ứng dụng chat hiện tại không được hỗ trợ: " + pkg);
+            reportError("Ứng dụng hiện tại không phải ứng dụng chat được hỗ trợ: " + pkg);
+            return false;
+        }
+
+        // The target app is captured when the incoming message arrives. If the
+        // user switches to another chat app while Ashna is thinking, never send
+        // the reply into the wrong conversation. The next accessibility event
+        // will capture the new app normally.
+        if (ashnaWebTargetPackage != null && !ashnaWebTargetPackage.isEmpty()
+                && !ashnaWebTargetPackage.equals(pkg)) {
+            safeRecycle(root);
+            postDebug("Đã phát hiện bạn chuyển ứng dụng. Không gửi nhầm câu trả lời sang " + pkg + ".");
+            reportError("Bạn vừa chuyển ứng dụng. Hãy quay lại cuộc trò chuyện ban đầu để gửi câu trả lời.");
             return false;
         }
 
