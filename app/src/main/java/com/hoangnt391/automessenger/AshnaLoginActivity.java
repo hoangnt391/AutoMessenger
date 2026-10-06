@@ -114,7 +114,7 @@ public class AshnaLoginActivity extends Activity {
         status = label("Đang mở Ashna Web…", 13, 0xFF4E3C5C, false);
         info.addView(status, new LinearLayout.LayoutParams(0, -2, 1));
 
-        Button done = new Button(this);
+        Button minimize = new Button(this);\n        minimize.setText("Thu nhỏ");\n        minimize.setAllCaps(false);\n        minimize.setTextColor(0xFF4E3C5C);\n        minimize.setBackground(bg(0xFFE1D7EA, 12));\n        minimize.setPadding(dp(8), 0, dp(8), 0);\n        minimize.setOnClickListener(v -> moveTaskToBack(true));\n        info.addView(minimize, new LinearLayout.LayoutParams(dp(82), dp(40)));\n\n        Button done = new Button(this);
         done.setText("Xong");
         done.setAllCaps(false);
         done.setTextColor(Color.WHITE);
@@ -154,7 +154,7 @@ public class AshnaLoginActivity extends Activity {
         root.addView(webBox, new LinearLayout.LayoutParams(-1, 0, 1));
 
         TextView hint = label(
-                "Bạn có thể chuyển sang Messenger, Zalo, WhatsApp… rồi quay lại bất cứ lúc nào. AutoMessenger chỉ dùng phiên này để xử lý ngầm; không khóa màn hình.",
+                "Có thể Thu nhỏ để sang Messenger/Zalo/WhatsApp xác nhận rồi quay lại. WebView không khóa màn hình; phiên đăng nhập vẫn được giữ bằng cookie/local storage.",
                 11, 0xFF77707D, false);
         hint.setPadding(dp(12), dp(6), dp(12), dp(8));
         root.addView(hint);
