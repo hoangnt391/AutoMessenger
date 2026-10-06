@@ -105,7 +105,8 @@ public class MessageAccessibilityService extends AccessibilityService {
         return "com.facebook.orca".equals(pkg)
                 || "com.zing.zalo".equals(pkg)
                 || "com.whatsapp".equals(pkg)
-                || "org.telegram.messenger".equals(pkg);
+                || "org.telegram.messenger".equals(pkg)
+                || "com.openai.chatgpt".equals(pkg);
     }
 
     public static void handleScreenMessage(String text) {
@@ -539,13 +540,30 @@ public class MessageAccessibilityService extends AccessibilityService {
     public void openAshnaLogin() {
         new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
             try {
-                // Login is a normal Activity, not an accessibility overlay.
-                // Therefore other apps can cover it and Home/Recents work normally.
-                android.content.Intent intent = new android.content.Intent(this, AshnaLoginActivity.class);
-                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-                        | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                startActivity(intent);
-                postDebug("Ashna Web: mở màn đăng nhập dạng ứng dụng bình thường.");
+                // Login now uses the SAME WebView instance used by background replies.
+                // This keeps cookies/local storage/session state in one browser profile.
+                ensureAshnaHiddenWebView();
+                if (ashnaHiddenWebView == null || ashnaWebWindowManager == null) {
+                    reportError("Không tạo được WebView Ashna để đăng nhập.");
+                    return;
+                }
+                ashnaHiddenWebView.setAlpha(1f);
+                ashnaHiddenWebView.setFocusable(true);
+                ashnaHiddenWebView.setFocusableInTouchMode(true);
+                ashnaWebWindowParams.flags =
+                        android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE == 0
+                                ? 0
+                                : android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
+                // Login overlay must accept taps and keyboard input.
+                ashnaWebWindowParams.flags = android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
+                try { ashnaWebWindowManager.updateViewLayout(ashnaHiddenWebView, ashnaWebWindowParams); }
+                catch (Exception ignored) {}
+                showAshnaLoginCloseButton();
+                ashnaLoginReadyChecks = 0;
+                ashnaHiddenWebView.loadUrl("https://app.ashna.ai/chat?agent=gpt-6.1-sol");
+                new android.os.Handler(android.os.Looper.getMainLooper())
+                        .postDelayed(() -> monitorAshnaLogin(0), 1200L);
+                postDebug("Ashna Web: đăng nhập bằng đúng WebView chạy nền; phiên sẽ được giữ lại.");
             } catch (Throwable e) {
                 reportError("Không mở được màn đăng nhập Ashna: " + shortError(e.getMessage()));
             }
@@ -558,20 +576,26 @@ public class MessageAccessibilityService extends AccessibilityService {
             final int d = Math.max(1, (int) getResources().getDisplayMetrics().density);
             ashnaLoginCloseButton = new android.widget.Button(getApplicationContext());
             ashnaLoginCloseButton.setText("✕");
-            ashnaLoginCloseButton.setTextSize(15f);
+            ashnaLoginCloseButton.setTextSize(19f);
             ashnaLoginCloseButton.setAllCaps(false);
+            ashnaLoginCloseButton.setMinWidth(0);
+            ashnaLoginCloseButton.setMinHeight(0);
+            ashnaLoginCloseButton.setPadding(0, 0, 0, 0);
+            ashnaLoginCloseButton.setGravity(android.view.Gravity.CENTER);
+            ashnaLoginCloseButton.setBackgroundColor(0xEE222222);
+            ashnaLoginCloseButton.setTextColor(android.graphics.Color.WHITE);
             ashnaLoginCloseButton.setContentDescription("Đóng đăng nhập Ashna");
             ashnaLoginCloseButton.setOnClickListener(v -> hideAshnaWeb());
 
             android.view.WindowManager.LayoutParams p = new android.view.WindowManager.LayoutParams(
-                    40 * d, 40 * d,
+                    56 * d, 56 * d,
                     android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                     android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                             | android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                     android.graphics.PixelFormat.TRANSLUCENT);
             p.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
-            p.x = 6 * d;
-            p.y = 6 * d;
+            p.x = 10 * d;
+            p.y = 10 * d;
             ashnaWebWindowManager.addView(ashnaLoginCloseButton, p);
         } catch (Throwable e) {
             ashnaLoginCloseButton = null;
@@ -657,7 +681,20 @@ public class MessageAccessibilityService extends AccessibilityService {
                 + "var s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'};"
                 + "var els=[].slice.call(document.querySelectorAll('textarea,input,[contenteditable=\"true\"]'));"
                 + "els=els.filter(function(e){return vis(e)&&!e.disabled&&e.type!=='hidden'});"
-                + "var login=/sign in|log in|đăng nhập|login/i.test(document.body?document.body.innerText:'');"
+                + "var body=document.body?document.body.innerText:'';
+                var login=/sign in|log in|đăng nhập|login/i.test(body);
+                // Ashna may reopen the last/default GPT-6 Sol even when the URL is
+                // opened with the newer model hint. Try the visible model picker once
+                // before submitting, then let the normal polling continue.
+                var modelWanted=/GPT\\s*6\\.1\\s*Sol/i;
+                var modelOld=/GPT\\s*6\\s*Sol/i;
+                var buttons=[].slice.call(document.querySelectorAll('button,[role="button"]')).filter(vis);
+                var oldBtn=buttons.find(function(x){return modelOld.test((x.innerText||x.getAttribute('aria-label')||'')) && !modelWanted.test((x.innerText||''));});
+                if(oldBtn && !modelWanted.test(body)){try{oldBtn.click();}catch(e){}}
+                var choices=[].slice.call(document.querySelectorAll('button,[role="button"],[role="menuitem"],li')).filter(vis);
+                var wanted=choices.find(function(x){return modelWanted.test((x.innerText||x.getAttribute('aria-label')||''));});
+                if(wanted){try{wanted.click();}catch(e){}}
+                login=/sign in|log in|đăng nhập|login/i.test(document.body?document.body.innerText:'');"
                 + "var input=els.sort(function(a,b){return b.getBoundingClientRect().bottom-a.getBoundingClientRect().bottom})[0];"
                 + "if(login&&!input)return 'LOGIN';if(!input)return 'NO_INPUT';"
                 + "var q=" + jsQuote(question) + ";"
