@@ -47,6 +47,7 @@ public class MessageAccessibilityService extends AccessibilityService {
     private int ashnaStableCandidateChecks = 0;
     private String ashnaBaselineBody = "";
     private String ashnaConversationContext = "";
+    private final List<String> deferredIncomingBatches = new ArrayList<>();
 
     private void ensureDebugChannel() {
         if (android.os.Build.VERSION.SDK_INT >= 26) {
@@ -159,6 +160,12 @@ public class MessageAccessibilityService extends AccessibilityService {
                 pendingFlush = null;
                 return;
             }
+            if (ashnaWebBusy) {
+                postDebug("AI đang trả lời. Tin mới được giữ lại để nối tiếp cuộc trò chuyện.");
+                if (pendingFlush != null) pendingFlush.cancel(false);
+                pendingFlush = debounceScheduler.schedule(this::flushPendingMessages, 1000L, TimeUnit.MILLISECONDS);
+                return;
+            }
             batch = joinPendingMessages(pendingMessages);
             pendingMessages.clear();
             pendingFlush = null;
@@ -167,7 +174,7 @@ public class MessageAccessibilityService extends AccessibilityService {
         if (!getSharedPreferences("AutoMessenger", 0).getBoolean("auto", false)) return;
 
         lastIncoming = batch;
-        postDebug("Đã gom " + countMessages(batch) + " tin. Đang xử lý 1 lần...");
+        postDebug("Đã gom " + countMessages(batch) + " tin. Đang xử lý 1 lượt hội thoại...");
         generateAndSend(batch);
     }
 
@@ -223,6 +230,13 @@ public class MessageAccessibilityService extends AccessibilityService {
     }
 
     private void generateAndSend(final String incoming) {
+        if (ashnaWebBusy) {
+            synchronized (pendingLock) {
+                if (incoming != null && !incoming.trim().isEmpty()) deferredIncomingBatches.add(incoming.trim());
+            }
+            postDebug("AI đang xử lý. Lượt mới đã được xếp hàng.");
+            return;
+        }
         replying = true;
         AccessibilityNodeInfo current = getRootInActiveWindow();
         ashnaWebTargetPackage = value(current == null ? null : current.getPackageName());
@@ -243,7 +257,12 @@ public class MessageAccessibilityService extends AccessibilityService {
                 reportError(error == null ? "Ashna Web không trả về câu trả lời." : error);
                 return;
             }
-            final String clean = answer.trim();
+            final String clean = sanitizeOutgoingAnswer(answer);
+            if (clean.isEmpty()) {
+                reportError("Ashna Web chỉ trả về phần giao diện/suy nghĩ, không có câu trả lời cuối.");
+                return;
+            }
+            appendConversationTurn(q, clean);
             AutoMessengerService.setLastConversation(q, clean);
             new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
                 if (sendMessage(clean)) {
@@ -261,7 +280,7 @@ public class MessageAccessibilityService extends AccessibilityService {
         final String aiInstruction = buildAshnaInstruction(originalQuestion, ashnaConversationContext);
         new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
             if (ashnaWebBusy) {
-                callback.onReply(originalQuestion, null, "Ashna Web đang xử lý một câu hỏi khác.");
+                callback.onReply(originalQuestion, null, "AI đang xử lý lượt trước; lượt mới đã được giữ lại.");
                 return;
             }
             ashnaWebBusy = true;
@@ -277,7 +296,7 @@ public class MessageAccessibilityService extends AccessibilityService {
                 return;
             }
             postDebug("Ashna Web Free: xử lý ngầm, không chuyển khỏi ứng dụng chat.");
-            ashnaHiddenWebView.loadUrl("https://app.ashna.ai/chat?agent=gpt-6-sol");
+            ashnaHiddenWebView.loadUrl("https://app.ashna.ai/chat?agent=gpt-6.1-sol");
             new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
                     () -> driveHiddenAshnaWeb(aiInstruction, 0), 1800L);
         });
@@ -798,12 +817,38 @@ public class MessageAccessibilityService extends AccessibilityService {
         StringBuilder out = new StringBuilder();
         for (String line : lines) {
             String x = removeAshnaDisclaimer(line).trim();
-            if (x.isEmpty() || x.equals(question) || isWebUiText(x) || isAshnaModelText(x)) continue;
+            if (x.isEmpty() || x.equals(question) || isWebUiText(x) || isAshnaModelText(x) || isReasoningLeak(x)) continue;
             if (out.length() > 0) out.append("\\n");
             out.append(x);
             if (out.length() > 3500) break;
         }
         return out.length() == 0 ? null : out.toString().trim();
+    }
+
+    private boolean isReasoningLeak(String text) {
+        if (text == null) return true;
+        String x = text.trim().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
+        return x.equals("thought for a few seconds") || x.startsWith("thought for ")
+                || x.equals("thought") || x.equals("thinking")
+                || x.startsWith("thinking...") || x.startsWith("thinking…")
+                || x.equals("reasoning") || x.equals("analysis") || x.startsWith("analysis:")
+                || x.startsWith("chain of thought") || x.contains("here is my reasoning");
+    }
+
+    private String sanitizeOutgoingAnswer(String answer) {
+        if (answer == null) return "";
+        String cleaned = cleanAshnaAnswer(answer.trim(), ashnaWebQuestion);
+        return cleaned == null ? "" : cleaned.trim();
+    }
+
+    private void appendConversationTurn(String incoming, String answer) {
+        String in = normalize(incoming), out = normalize(answer);
+        if (in.isEmpty() || out.isEmpty()) return;
+        StringBuilder sb = new StringBuilder(ashnaConversationContext == null ? "" : ashnaConversationContext.trim());
+        if (sb.length() > 0) sb.append("\\n");
+        sb.append("Người kia: ").append(in).append("\\nMình: ").append(out);
+        String result = sb.toString();
+        ashnaConversationContext = result.length() > 8000 ? result.substring(result.length() - 8000) : result;
     }
 
     private String jsQuote(String value) {
@@ -831,6 +876,19 @@ public class MessageAccessibilityService extends AccessibilityService {
             ashnaWebBusy = false;
             replying = false;
             if (cb != null) cb.onReply(ashnaWebQuestion, answer, error);
+            final String deferred;
+            synchronized (pendingLock) {
+                deferred = deferredIncomingBatches.isEmpty() ? "" : joinPendingMessages(deferredIncomingBatches);
+                deferredIncomingBatches.clear();
+            }
+            if (!deferred.isEmpty() && getSharedPreferences("AutoMessenger", 0).getBoolean("auto", false)) {
+                synchronized (pendingLock) {
+                    pendingMessages.add(deferred);
+                    if (pendingFlush != null) pendingFlush.cancel(false);
+                    pendingFlush = debounceScheduler.schedule(this::flushPendingMessages, 3000L, TimeUnit.MILLISECONDS);
+                }
+                postDebug("Đã giữ tin mới trong lúc AI trả lời; tiếp tục sau 3s im lặng.");
+            }
         });
     }
 
@@ -840,7 +898,8 @@ public class MessageAccessibilityService extends AccessibilityService {
                 || x.equals("settings") || x.equals("sign in") || x.equals("log in")
                 || x.equals("try again") || x.equals("copy") || x.equals("regenerate")
                 || x.equals("ashnaai can make mistakes") || x.equals("input") || x.equals("how can i help you today?")
-                || x.equals("stop") || x.equals("show more") || x.equals("show less") || x.startsWith("model:") || x.startsWith("agent:");
+                || x.equals("stop") || x.equals("show more") || x.equals("show less")
+                || x.startsWith("model:") || x.startsWith("agent:") || isReasoningLeak(x);
     }
 
     private boolean sendMessage(String text) {
