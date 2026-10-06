@@ -1,5 +1,5 @@
 name: Android Build
-# build trigger
+# build trigger after selector compile fix
 on:
   push:
     branches: ["**"]
