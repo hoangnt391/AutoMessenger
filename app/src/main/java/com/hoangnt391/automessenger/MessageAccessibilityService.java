@@ -534,26 +534,14 @@ public class MessageAccessibilityService extends AccessibilityService {
     public void openAshnaLogin() {
         new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
             try {
-                // Login now uses the SAME WebView instance used by background replies.
-                // This keeps cookies/local storage/session state in one browser profile.
-                ensureAshnaHiddenWebView();
-                if (ashnaHiddenWebView == null || ashnaWebWindowManager == null) {
-                    reportError("Không tạo được WebView Ashna để đăng nhập.");
-                    return;
-                }
-                ashnaHiddenWebView.setAlpha(1f);
-                ashnaHiddenWebView.setFocusable(true);
-                ashnaHiddenWebView.setFocusableInTouchMode(true);
-                // Login overlay must accept taps and keyboard input.
-                ashnaWebWindowParams.flags = android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
-                try { ashnaWebWindowManager.updateViewLayout(ashnaHiddenWebView, ashnaWebWindowParams); }
-                catch (Exception ignored) {}
-                showAshnaLoginCloseButton();
-                ashnaLoginReadyChecks = 0;
-                ashnaHiddenWebView.loadUrl("https://app.ashna.ai/chat?agent=gpt-6.1-sol");
-                new android.os.Handler(android.os.Looper.getMainLooper())
-                        .postDelayed(() -> monitorAshnaLogin(0), 1200L);
-                postDebug("Ashna Web: đăng nhập bằng đúng WebView chạy nền; phiên sẽ được giữ lại.");
+                // Login is a normal Activity now. It is not a full-screen accessibility
+                // overlay, so Android can freely switch between chat apps, Home and
+                // Recents while the user is logging in/confirming the session.
+                android.content.Intent intent =
+                        new android.content.Intent(this, AshnaLoginActivity.class);
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(intent);
+                postDebug("Ashna Web: mở màn đăng nhập riêng, không khóa chuyển ứng dụng.");
             } catch (Throwable e) {
                 reportError("Không mở được màn đăng nhập Ashna: " + shortError(e.getMessage()));
             }
