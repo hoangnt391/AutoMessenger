@@ -388,7 +388,7 @@ public class MainActivity extends Activity {
     private void updateStatus() {
         if (status == null) return;
         status.setText("Trạng thái: " +
-                (MessageAccessibilityService.isRunning() ? "Trợ năng OK" : "Chưa bật Trợ năng") +
+                (MessageAccessibilityService.isAccessibilityEnabled(this) ? "Trợ năng OK" : "Chưa bật Trợ năng") +
                 " • Prompt: " + activePromptName +
                 " • AI: Ashna Web Free");
     }
