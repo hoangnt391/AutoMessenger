@@ -14,7 +14,6 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -64,7 +63,6 @@ public class AshnaLoginActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(0xFFF6F3F8);
 
-        // Compact app bar instead of a fixed full-screen close button.
         LinearLayout bar = new LinearLayout(this);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setPadding(dp(8), dp(7), dp(8), dp(7));
@@ -85,10 +83,8 @@ public class AshnaLoginActivity extends Activity {
 
         LinearLayout titleBox = new LinearLayout(this);
         titleBox.setOrientation(LinearLayout.VERTICAL);
-        TextView title = label("Ashna Web", 18, Color.WHITE, true);
-        TextView sub = label("Đăng nhập • phiên được lưu trên máy", 12, 0xFFD9CFDF, false);
-        titleBox.addView(title);
-        titleBox.addView(sub);
+        titleBox.addView(label("Ashna Web", 18, Color.WHITE, true));
+        titleBox.addView(label("Đăng nhập • phiên được lưu trên máy", 12, 0xFFD9CFDF, false));
         bar.addView(titleBox, new LinearLayout.LayoutParams(0, -2, 1));
 
         Button refresh = new Button(this);
@@ -103,7 +99,6 @@ public class AshnaLoginActivity extends Activity {
         refresh.setContentDescription("Tải lại Ashna");
         refresh.setOnClickListener(v -> webView.reload());
         bar.addView(refresh, new LinearLayout.LayoutParams(dp(48), dp(48)));
-
         root.addView(bar);
 
         LinearLayout info = new LinearLayout(this);
@@ -114,7 +109,16 @@ public class AshnaLoginActivity extends Activity {
         status = label("Đang mở Ashna Web…", 13, 0xFF4E3C5C, false);
         info.addView(status, new LinearLayout.LayoutParams(0, -2, 1));
 
-        Button minimize = new Button(this);\n        minimize.setText("Thu nhỏ");\n        minimize.setAllCaps(false);\n        minimize.setTextColor(0xFF4E3C5C);\n        minimize.setBackground(bg(0xFFE1D7EA, 12));\n        minimize.setPadding(dp(8), 0, dp(8), 0);\n        minimize.setOnClickListener(v -> moveTaskToBack(true));\n        info.addView(minimize, new LinearLayout.LayoutParams(dp(82), dp(40)));\n\n        Button done = new Button(this);
+        Button minimize = new Button(this);
+        minimize.setText("Thu nhỏ");
+        minimize.setAllCaps(false);
+        minimize.setTextColor(0xFF4E3C5C);
+        minimize.setBackground(bg(0xFFE1D7EA, 12));
+        minimize.setPadding(dp(8), 0, dp(8), 0);
+        minimize.setOnClickListener(v -> moveTaskToBack(true));
+        info.addView(minimize, new LinearLayout.LayoutParams(dp(82), dp(40)));
+
+        Button done = new Button(this);
         done.setText("Xong");
         done.setAllCaps(false);
         done.setTextColor(Color.WHITE);
@@ -147,14 +151,12 @@ public class AshnaLoginActivity extends Activity {
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progress.setMax(100);
         progress.setProgress(0);
-
         webBox.addView(webView, new FrameLayout.LayoutParams(-1, -1));
-        FrameLayout.LayoutParams pp = new FrameLayout.LayoutParams(-1, dp(3), Gravity.TOP);
-        webBox.addView(progress, pp);
+        webBox.addView(progress, new FrameLayout.LayoutParams(-1, dp(3), Gravity.TOP));
         root.addView(webBox, new LinearLayout.LayoutParams(-1, 0, 1));
 
         TextView hint = label(
-                "Có thể Thu nhỏ để sang Messenger/Zalo/WhatsApp xác nhận rồi quay lại. WebView không khóa màn hình; phiên đăng nhập vẫn được giữ bằng cookie/local storage.",
+                "Có thể Thu nhỏ để sang Messenger/Zalo/WhatsApp xác nhận rồi quay lại. Phiên đăng nhập được giữ bằng cookie/local storage.",
                 11, 0xFF77707D, false);
         hint.setPadding(dp(12), dp(6), dp(12), dp(8));
         root.addView(hint);
@@ -178,18 +180,14 @@ public class AshnaLoginActivity extends Activity {
             }
         });
 
-        if (state != null) {
-            webView.restoreState(state);
-        } else {
-            webView.loadUrl(ashnaUrl());
-        }
+        if (state != null) webView.restoreState(state);
+        else webView.loadUrl(ashnaUrl());
     }
 
     private void checkLogin() {
         if (webView == null) return;
         String js = "(function(){"
-                + "var vis=function(e){var r=e.getBoundingClientRect(),s=getComputedStyle(e);"
-                + "return r.width>0&&r.height>0&&s.display!='none'&&s.visibility!='hidden';};"
+                + "var vis=function(e){var r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!='none'&&s.visibility!='hidden';};"
                 + "var t=document.body?document.body.innerText:'';"
                 + "var es=[].slice.call(document.querySelectorAll('button,a,input,textarea,[contenteditable=true]'));"
                 + "var login=es.some(function(e){return vis(e)&&/sign in|log in|continue with google|continue with email|đăng nhập|login/i.test((e.innerText||e.value||e.getAttribute('aria-label')||''));});"
@@ -204,7 +202,7 @@ public class AshnaLoginActivity extends Activity {
             if (ok) {
                 getSharedPreferences(PREFS, 0).edit()
                         .putBoolean("ashna_login_confirmed", true).apply();
-                status.setText("✓ Đã đăng nhập. Phiên đã lưu — bạn có thể chuyển ứng dụng hoặc bấm Xong.");
+                status.setText("✓ Đã đăng nhập. Phiên đã lưu — có thể chuyển ứng dụng.");
             } else {
                 status.setText("Đăng nhập Ashna Web rồi quay lại đây để xác nhận.");
             }
@@ -213,7 +211,6 @@ public class AshnaLoginActivity extends Activity {
 
     private void confirmAndFinish() {
         CookieManager.getInstance().flush();
-        checkLogin();
         getSharedPreferences(PREFS, 0).edit()
                 .putBoolean("ashna_login_confirmed", true).apply();
         Toast.makeText(this, "Đã lưu phiên Ashna Web.", Toast.LENGTH_SHORT).show();
