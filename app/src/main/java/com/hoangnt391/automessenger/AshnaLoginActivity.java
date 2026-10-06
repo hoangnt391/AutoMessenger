@@ -47,7 +47,7 @@ public class AshnaLoginActivity extends Activity {
 
         Button close = new Button(this);
         close.setText("✕");
-        close.setTextSize(14f);
+        close.setTextSize(19f);
         close.setMinWidth(0);
         close.setMinHeight(0);
         close.setPadding(0, 0, 0, 0);
@@ -64,9 +64,9 @@ public class AshnaLoginActivity extends Activity {
         FrameLayout.LayoutParams cp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.TOP | Gravity.END);
-        cp.width = 34;
-        cp.height = 34;
-        cp.topMargin = 8; cp.rightMargin = 8;
+        cp.width = 56;
+        cp.height = 56;
+        cp.topMargin = 12; cp.rightMargin = 12;
         root.addView(close, cp);
 
         status = new TextView(this);
