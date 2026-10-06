@@ -80,7 +80,7 @@ public class AshnaLoginActivity extends Activity {
         setContentView(root);
 
         if (state != null) webView.restoreState(state);
-        else webView.loadUrl("https://app.ashna.ai/chat?agent=gpt-6-sol");
+        else webView.loadUrl("https://app.ashna.ai/chat?agent=gpt-6.1-sol");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override public void onPageFinished(WebView v, String url) {
